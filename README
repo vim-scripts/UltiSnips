@@ -1,0 +1,47 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=2715
+
+This is the initial release of UltiSnips. It is the Ultimate solution for snippets under Vim. Snippets are intelligent text that spares you a lot of typing. Like many snippets solutions, this one ins heavily inspired by TextMates Snippet Syntax and offers all features that TextMate offers. But in Vim.
+
+This release features the following features:
+
+- TextMates snippet syntax
+- Tabstops, Placeholders (also nested)
+- Mirrors and Transformations (also inside Placeholders)
+- ShellCode, VimCode and a very powerful PythonCode interpolation
+- Live update as you type
+- snippets for file types and snippets that are always defined
+- same name, multiple snippets
+- recursive snippets: snippet in snippet
+- forward and backward jumping to placeholders and tab stops
+- convert script to download and convert TM bundles
+- > 150 unit tests to guarantee that stuff works.
+- Tested on Linux and Mac OS X
+
+There have been many attempts to do things right; I think, this one nails it. 
+
+Try it:
+Example 1:
+- open /tmp/file.c
+type for<tab>endcounter<c-j>mycounter<c-j><c-j>int a = 3;
+yields:
+------------------- SNIP -------------------
+for(size_t mycounter = 0; mycounter < endcounter; ++mycounter)
+{
+	int a = 3;
+}
+------------------- SNAP -------------------
+
+Example 2:
+- open /tmp/blah.help
+- :set ft=help
+- type sec<tab>MY COOL SECTION<c-h>blah
+yields:
+------------------- SNIP -------------------
+=============================================================================
+MY COOL SECTION                                        *blah-my-cool-section*
+
+blah
+------------------- SNAP -------------------
+
+
+If you like the script, please contact me and vote for the script!
