@@ -11,17 +11,27 @@ from UltiSnips.Geometry import Position
 from UltiSnips.TextObjects import *
 from UltiSnips.Buffer import VimBuffer
 
+from UltiSnips.debug import debug
+
 class Snippet(object):
     _INDENT = re.compile(r"^[ \t]*")
 
-    def __init__(self,trigger,value, descr):
+    def __init__(self, trigger, value, descr, options):
         self._t = trigger
         self._v = value
         self._d = descr
+        self._opts = options
 
-    def value(self):
-        return self._v
-    value = property(value)
+    def __repr__(self):
+        return "Snippet(%s,%s,%s)" % (self._t,self._d,self._opts)
+
+    def overwrites_previous(self):
+        return "!" in self._opts
+    overwrites_previous = property(overwrites_previous)
+
+    def needs_ws_in_front(self):
+        return "b" in self._opts
+    needs_ws_in_front = property(needs_ws_in_front)
 
     def description(self):
         return self._d
@@ -31,7 +41,7 @@ class Snippet(object):
         return self._t
     trigger = property(trigger)
 
-    def launch(self, text_before, start):
+    def launch(self, text_before, parent, start, end = None):
         indent = self._INDENT.match(text_before).group(0)
         v = self._v
         if len(indent):
@@ -41,7 +51,10 @@ class Snippet(object):
                 v += os.linesep + \
                         os.linesep.join([indent + l for l in lines[1:]])
 
-        return SnippetInstance(StartMarker(start), v )
+        if parent is None:
+            return SnippetInstance(StartMarker(start), v )
+        else:
+            return SnippetInstance(parent, v, start, end)
 
 class VimState(object):
     def __init__(self):
@@ -155,146 +168,51 @@ class VimState(object):
 class SnippetManager(object):
     def __init__(self):
         self._vstate = VimState()
+        self._supertab_keys = None
 
         self.reset()
-
 
     def reset(self):
         self._snippets = {}
         self._csnippets = []
         self._reinit()
 
-    def _reinit(self):
-        self._ctab = None
-        self._span_selected = None
-        self._expect_move_wo_change = False
+    def jump_forwards(self):
+        if not self._jump():
+            return self._handle_failure(self.forward_trigger)
 
+    def jump_backwards(self):
+        if not self._jump(True):
+            return self._handle_failure(backward_trigger)
 
-    def add_snippet(self, trigger, value, descr):
+    def expand(self):
+        if not self._try_expand():
+            self._handle_failure(self.expand_trigger)
+    
+    def expand_or_jump(self):
+        """
+        This function is used for people who wants to have the same trigger for
+        expansion and forward jumping. It first tries to expand a snippet, if
+        this fails, it tries to jump forward.
+        """
+        rv = self._try_expand()
+        if not rv:
+            rv = self._jump()
+        if not rv:
+            self._handle_failure(self.expand_trigger)
+
+    def add_snippet(self, trigger, value, descr, options):
         if "all" not in self._snippets:
             self._snippets["all"] = {}
         l = self._snippets["all"].get(trigger,[])
-        l.append(Snippet(trigger,value, descr))
+        l.append(Snippet(trigger,value, descr, options))
         self._snippets["all"][trigger] = l
 
-    def jump(self, backwards = False):
-        if self._cs:
-            self._expect_move_wo_change = True
-            self._ctab = self._cs.select_next_tab(backwards)
-            if self._ctab:
-                self._vstate.select_span(self._ctab.abs_span)
-                self._span_selected = self._ctab.abs_span
-            else:
-                # TODO: pop othermost snippet
-                self._csnippets.pop()
-                if self._cs:
-                    self.jump(backwards)
-                return True
-
-            self._vstate.update()
-            return True
-        return False
-
-    def try_expand(self, backwards = False):
-        ft = vim.eval("&filetype")
-        if len(ft) and ft not in self._snippets:
-            self._load_snippets_for(ft)
-        if "all" not in self._snippets:
-            self._load_snippets_for("all")
-
-        self._expect_move_wo_change = False
-
-        lineno,col = vim.current.window.cursor
-        if col == 0:
-            return False
-
-        line = vim.current.line
-
-        if col > 0 and line[col-1] in string.whitespace:
-            return False
-
-        # Get the word to the left of the current edit position
-        before,after = line[:col], line[col:]
-
-        word = before.split()[-1]
-        snippets = []
-        if len(ft):
-            snippets += self._find_snippets(ft, word)
-        snippets += self._find_snippets("all", word)
-
-        if not len(snippets):
-            # No snippet found
-            return False
-        elif len(snippets) == 1:
-            snippet, = snippets
-        else:
-            display = repr(
-                [ "%i: %s" % (i+1,s.description) for i,s in
-                 enumerate(snippets)
-                ]
-            )
-
-            rv = vim.eval("inputlist(%s)" % display)
-            if rv is None:
-                return True
-            rv = int(rv)
-            snippet = snippets[rv-1]
-
-        self._expect_move_wo_change = True
-
-        if self._cs:
-            # Determine position
-            pos = self._vstate.pos
-            p_start = self._ctab.abs_start
-
-            if pos.line == p_start.line:
-                end = Position(0, pos.col - p_start.col)
-            else:
-                end = Position(pos.line - p_start.line, pos.col)
-            start = Position(end.line, end.col - len(snippet.trigger))
-
-            # TODO: very much the same as above
-            indent = vim.current.line[:pos.col - len(snippet.trigger)]
-            v = snippet.value
-            if indent.strip(" \n") == "":
-                lines = v.splitlines()
-                v = lines[0]
-                if len(lines) > 1:
-                    v += os.linesep + \
-                            os.linesep.join([indent + l for l in lines[1:]])
-
-            # Launch this snippet as a child of the current snippet
-            si = SnippetInstance(self._ctab, v, start, end)
-
-            self._update_vim_buffer()
-
-            if si.has_tabs:
-                self._csnippets.append(si)
-                self._ctab = si.select_next_tab()
-                if self._ctab is not None:
-                    self._vstate.select_span(self._ctab.abs_span)
-                    self._span_selected = self._ctab.abs_span
-        else:
-            text_before = before.rstrip()[:-len(word)]
-            self._vb = VimBuffer(text_before, after)
-
-            start = Position(lineno-1, len(text_before))
-            self._csnippets.append(snippet.launch(text_before, start))
-
-            self._vb.replace_lines(lineno-1, lineno-1,
-                       self._cs._current_text)
-
-            # TODO: this code is duplicated above
-            self._ctab = self._cs.select_next_tab()
-            if self._ctab is not None:
-                self._vstate.select_span(self._ctab.abs_span)
-                self._span_selected = self._ctab.abs_span
-
-        self._vstate.update()
-
-        return True
 
     def backspace_while_selected(self):
+        """
+        This is called when backspace was used while a placeholder was selected.
+        """
         # BS was called in select mode
 
         if self._cs and (self._span_selected is not None):
@@ -303,18 +221,6 @@ class SnippetManager(object):
             self._chars_entered('')
         else:
             vim.command(r'call feedkeys("\<BS>")')
-
-    def _check_if_still_inside_snippet(self):
-        # Cursor moved without input.
-        self._ctab = None
-
-        # Did we leave the snippet with this movement?
-        if self._cs and not (self._vstate.pos in self._cs.abs_span):
-            self._csnippets.pop()
-
-            self._reinit()
-
-            self._check_if_still_inside_snippet()
 
     def cursor_moved(self):
         self._vstate.update()
@@ -372,6 +278,156 @@ class SnippetManager(object):
     ###################################
     # Private/Protect Functions Below #
     ###################################
+    def _reinit(self):
+        self._ctab = None
+        self._span_selected = None
+        self._expect_move_wo_change = False
+
+    def _check_if_still_inside_snippet(self):
+        # Cursor moved without input.
+        self._ctab = None
+
+        # Did we leave the snippet with this movement?
+        if self._cs and not (self._vstate.pos in self._cs.abs_span):
+            self._csnippets.pop()
+
+            self._reinit()
+
+            self._check_if_still_inside_snippet()
+    
+    def _jump(self, backwards = False):
+        if self._cs:
+            self._expect_move_wo_change = True
+            self._ctab = self._cs.select_next_tab(backwards)
+            if self._ctab:
+                self._vstate.select_span(self._ctab.abs_span)
+                self._span_selected = self._ctab.abs_span
+            else:
+                self._csnippets.pop()
+                if self._cs:
+                    self._jump(backwards)
+                return True
+
+            self._vstate.update()
+            return True
+        return False
+
+
+    def _handle_failure(self, trigger):
+        """
+        Mainly make sure that we play well with SuperTab
+        """
+        feedkey = None
+        if not self._supertab_keys:
+            if vim.eval("exists('g:SuperTabMappingForward')") != "0":
+                self._supertab_keys = (
+                    vim.eval("g:SuperTabMappingForward"),
+                    vim.eval("g:SuperTabMappingBackward"),
+                )
+            else:
+                self._supertab_keys = [ '', '' ]
+
+        for idx, sttrig in enumerate(self._supertab_keys):
+            if trigger.lower() == sttrig.lower():
+                if idx == 0:
+                    feedkey= r"\<c-n>"
+                elif idx == 1:
+                    feedkey = r"\<c-p>"
+                break
+
+        if feedkey:
+            vim.command(r'call feedkeys("%s")' % feedkey)
+
+
+    def _try_expand(self):
+        filetypes = vim.eval("&filetype").split(".") + [ "all" ]
+        for ft in filetypes[::-1]:
+            if len(ft) and ft not in self._snippets:
+                self._load_snippets_for(ft)
+
+        self._expect_move_wo_change = False
+
+        lineno,col = vim.current.window.cursor
+        if col == 0:
+            return False
+
+        line = vim.current.line
+
+        if col > 0 and line[col-1] in string.whitespace:
+            return False
+
+        # Get the word to the left of the current edit position
+        before,after = line[:col], line[col:]
+
+        word = before.split()[-1]
+        found_snippets = []
+        for ft in filetypes[::-1]:
+            found_snippets += self._find_snippets(ft, word)
+
+        # Search if any of the snippets overwrites the previous
+        snippets = []
+        for s in found_snippets:
+            if s.overwrites_previous:
+                snippets = []
+            snippets.append(s)
+
+        # Check if there are any only whitespace in front snippets
+        text_before = before.rstrip()[:-len(word)]
+        if text_before.strip(" \t") != '':
+            snippets = [ s for s in snippets if not s.needs_ws_in_front ]
+
+        if not len(snippets):
+            # No snippet found
+            return False
+        elif len(snippets) == 1:
+            snippet, = snippets
+        else:
+            display = repr(
+                [ "%i: %s" % (i+1,s.description) for i,s in
+                 enumerate(snippets)
+                ]
+            )
+
+            rv = vim.eval("inputlist(%s)" % display)
+            if rv is None:
+                return True
+            rv = int(rv)
+            snippet = snippets[rv-1]
+
+        self._expect_move_wo_change = True
+
+        if self._cs:
+            # Determine position
+            pos = self._vstate.pos
+            p_start = self._ctab.abs_start
+
+            if pos.line == p_start.line:
+                end = Position(0, pos.col - p_start.col)
+            else:
+                end = Position(pos.line - p_start.line, pos.col)
+            start = Position(end.line, end.col - len(snippet.trigger))
+
+            si = snippet.launch(text_before, self._ctab, start, end)
+
+            self._update_vim_buffer()
+
+            if si.has_tabs:
+                self._csnippets.append(si)
+                self._jump()
+        else:
+            self._vb = VimBuffer(text_before, after)
+
+            start = Position(lineno-1, len(text_before))
+            self._csnippets.append(snippet.launch(text_before, None, start))
+
+            self._vb.replace_lines(lineno-1, lineno-1,
+                       self._cs._current_text)
+
+            self._jump()
+
+        return True
+
+
     # Input Handling
     def _chars_entered(self, chars, del_more_lines = 0):
         if (self._span_selected is not None):
@@ -421,6 +477,7 @@ class SnippetManager(object):
         cs = None
         cv = ""
         cdescr = ""
+        coptions = ""
         for line in open(fn):
             if cs is None and line.startswith("#"):
                 continue
@@ -430,15 +487,15 @@ class SnippetManager(object):
                 if left != -1:
                     right = line.rfind('"')
                     cdescr = line[left+1:right]
+                    coptions = line[right:].strip()
                 continue
             if cs != None:
                 if line.startswith("endsnippet"):
                     cv = cv[:-1] # Chop the last newline
                     l = self._snippets[ft].get(cs,[])
-                    l.append(Snippet(cs,cv,cdescr))
+                    l.append(Snippet(cs,cv,cdescr,coptions))
                     self._snippets[ft][cs] = l
-                    cv = ""
-                    cdescr = ""
+                    cv = cdescr = coptions = ""
                     cs = None
                     continue
                 else:

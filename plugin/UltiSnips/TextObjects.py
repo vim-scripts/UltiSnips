@@ -23,7 +23,7 @@ class _CleverReplace(object):
     _DOLLAR = re.compile(r"\$(\d+)", re.DOTALL)
     _SIMPLE_CASEFOLDINGS = re.compile(r"\\([ul].)", re.DOTALL)
     _LONG_CASEFOLDINGS = re.compile(r"\\([UL].*?)\\E", re.DOTALL)
-    _CONDITIONAL = re.compile(r"\(\?(\d+):(.*?)(?<!\\)\)", re.DOTALL)
+    _CONDITIONAL = re.compile(r"\(\?(\d+):", re.DOTALL)
 
     _UNESCAPE = re.compile(r'\\[^ntrab]')
 
@@ -41,6 +41,56 @@ class _CleverReplace(object):
         else:
             return m.group(1)[1:].lower()
 
+    def _replace_conditional(self, match, v):
+        def _find_closingbrace(v,start_pos):
+            bracks_open = 1
+            for idx, c in enumerate(v[start_pos:]):
+                if c == '(':
+                    if v[idx+start_pos-1] != '\\':
+                        bracks_open += 1
+                elif c == ')':
+                    if v[idx+start_pos-1] != '\\':
+                        bracks_open -= 1
+                    if not bracks_open:
+                        return start_pos+idx+1
+        m = self._CONDITIONAL.search(v)
+
+        def _part_conditional(v):
+            bracks_open = 0
+            args = []
+            carg = ""
+            for idx, c in enumerate(v):
+                if c == '(':
+                    if v[idx-1] != '\\':
+                        bracks_open += 1
+                elif c == ')':
+                    if v[idx-1] != '\\':
+                        bracks_open -= 1
+                elif c == ':' and not bracks_open:
+                    args.append(carg)
+                    carg = ""
+                    continue
+                carg += c
+            args.append(carg)
+            return args
+
+        while m:
+            start = m.start()
+            end = _find_closingbrace(v,start+4)
+
+            args = _part_conditional(v[start+4:end-1])
+
+            rv = ""
+            if match.group(int(m.group(1))):
+                rv = self._unescape(self._replace_conditional(match,args[0]))
+            elif len(args) > 1:
+                rv = self._unescape(self._replace_conditional(match,args[1]))
+
+            v = v[:start] + rv + v[end:]
+
+            m = self._CONDITIONAL.search(v)
+        return v
+
     def _unescape(self, v):
         return self._UNESCAPE.subn(lambda m: m.group(0)[-1], v)[0]
     def replace(self, match):
@@ -51,24 +101,12 @@ class _CleverReplace(object):
         # Replace all $? with capture groups
         tv = self._DOLLAR.subn(lambda m: match.group(int(m.group(1))), tv)[0]
 
-        def _conditional(m):
-            args = m.group(2).split(':')
-            # TODO: the returned string should be checked for conditionals
-            if match.group(int(m.group(1))):
-                return self._unescape(args[0])
-            elif len(args) > 1:
-                return self._unescape(args[1])
-            else:
-                return ""
-
         # Replace CaseFoldings
         tv = self._SIMPLE_CASEFOLDINGS.subn(self._scase_folding, tv)[0]
         tv = self._LONG_CASEFOLDINGS.subn(self._lcase_folding, tv)[0]
-        tv = self._CONDITIONAL.subn(_conditional, tv)[0]
+        tv = self._replace_conditional(match, tv)
 
-        rv = tv.decode("string-escape")
-
-        return rv
+        return self._unescape(tv.decode("string-escape"))
 
 class _TOParser(object):
     # A simple tabstop with default value
@@ -558,7 +596,7 @@ class Transformation(Mirror):
             if "i" in options:
                 flags |=  re.IGNORECASE
 
-        self._find = re.compile(s, flags)
+        self._find = re.compile(s, flags | re.DOTALL)
         self._replace = _CleverReplace(r)
 
     def _do_update(self):
@@ -624,7 +662,7 @@ class PythonCode(TextObject):
         code = code.replace("\\`", "`")
 
         # Add Some convenience to the code
-        self._code = "import re, os, vim\n" + code.strip()
+        self._code = "import re, os, vim, string, random\n" + code.strip()
 
         TextObject.__init__(self, parent, start, end, "")
 
@@ -634,10 +672,13 @@ class PythonCode(TextObject):
             path = ""
         fn = os.path.basename(path)
 
+        ct = self.current_text
         d = {
             't': _Tabs(self),
             'fn': fn,
             'path': path,
+            'cur': ct,
+            'res': ct,
         }
 
         exec self._code in d

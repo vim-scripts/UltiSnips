@@ -74,13 +74,19 @@ class _VimTest(unittest.TestCase):
         for s in self.snippets:
             sv,content = s[:2]
             descr = ""
-            if len(s) == 3:
-                descr = s[-1]
+            options = ""
+            if len(s) > 2:
+                descr = s[2]
+            if len(s) > 3:
+                options = s[3]
+
             self.send(''':py << EOF
-UltiSnips_Manager.add_snippet("%s","""%s""", "%s")
+UltiSnips_Manager.add_snippet("%s","""%s""", "%s", "%s")
 EOF
-''' % (sv,content.encode("string-escape"), descr.encode("string-escape"))
-            )
+''' % (sv,content.encode("string-escape"), descr.encode("string-escape"),
+      options
+      )
+      )
 
         # Clear the buffer
         self.send("bggVGd")
@@ -406,6 +412,11 @@ class TabStop_PythonCode_ReferencePlaceholderBefore(_VimTest):
     snippets = ("test", """`!p res = len(t[1])*"#"`\n${1:some text}""")
     keys = "test" + EX + "Hallo Welt"
     wanted = "##########\nHallo Welt"
+class TabStop_PythonCode_TransformedBeforeMultiLine(_VimTest):
+    snippets = ("test", """${1/.+/egal/m} ${1:`!p
+res = "Hallo"`} End""")
+    keys = "test" + EX
+    wanted = "egal Hallo End"
 
 ###########################
 # VimScript Interpolation #
@@ -418,6 +429,7 @@ class TabStop_VimScriptInterpolation_SimpleExample(_VimTest):
 # TODO: pasting with <C-R> while mirroring, also multiline
 # TODO: expandtab and therelikes
 # TODO: Multiline text pasting
+# TODO: option to avoid snippet expansion when not only indent in front
 
 
 ###############################
@@ -526,6 +538,10 @@ class RecTabStops_InNewlineManualIndent_ECR(_VimTest):
     snippets = ("m", "M START\n$0\nM END")
     keys = "m" + EX + "    m" + EX + "hi"
     wanted = "M START\n    M START\n    hi\n    M END\nM END"
+class RecTabStops_InNewlineManualIndentTextInFront_ECR(_VimTest):
+    snippets = ("m", "M START\n$0\nM END")
+    keys = "m" + EX + "    hallo m" + EX + "hi"
+    wanted = "M START\n    hallo M START\n    hi\n    M END\nM END"
 class RecTabStops_InNewlineMultilineWithIndent_ECR(_VimTest):
     snippets = ("m", "M START\n    $0\nM END")
     keys = "m" + EX + "m" + EX + "hi"
@@ -827,6 +843,12 @@ class Transformation_ConditionalInsertRWEllipsis_ECR(_VimTest):
     snippets = ("test", r"$1 ${1/(\w+(?:\W+\w+){,7})\W*(.+)?/$1(?2:...)/}")
     keys = "test" + EX + "a b  c d e f ghhh h oha"
     wanted = "a b  c d e f ghhh h oha a b  c d e f ghhh h..."
+class Transformation_ConditionalInConditional_ECR(_VimTest):
+    snippets = ("test", r"$1 ${1/^.*?(-)?(>)?$/(?2::(?1:>:.))/}")
+    keys = "test" + EX + "hallo" + ESC + "$a\n" + \
+           "test" + EX + "hallo-" + ESC + "$a\n" + \
+           "test" + EX + "hallo->"
+    wanted = "hallo .\nhallo- >\nhallo-> "
 
 class Transformation_CINewlines_ECR(_VimTest):
     snippets = ("test", r"$1 ${1/, */\n/}")
@@ -938,6 +960,61 @@ class Completion_SimpleExample_ECR(_VimTest):
             "superkallifragilistik some more"
 
 
+###################
+# SNIPPET OPTIONS #
+###################
+class SnippetOptions_OverwriteExisting_ECR(_VimTest):
+    snippets = (
+     ("test", "${1:Hallo}", "Types Hallo"),
+     ("test", "${1:World}", "Types World"),
+     ("test", "We overwrite", "Overwrite the two", "!"),
+    )
+    keys = "test" + EX
+    wanted = "We overwrite"
+class SnippetOptions_OverwriteTwice_ECR(_VimTest):
+    snippets = (
+        ("test", "${1:Hallo}", "Types Hallo"),
+        ("test", "${1:World}", "Types World"),
+        ("test", "We overwrite", "Overwrite the two", "!"),
+        ("test", "again", "Overwrite again", "!"),
+    )
+    keys = "test" + EX
+    wanted = "again"
+class SnippetOptions_OverwriteThenChoose_ECR(_VimTest):
+    snippets = (
+        ("test", "${1:Hallo}", "Types Hallo"),
+        ("test", "${1:World}", "Types World"),
+        ("test", "We overwrite", "Overwrite the two", "!"),
+        ("test", "No overwrite", "Not overwritten", ""),
+    )
+    keys = "test" + EX + "1\n\n" + "test" + EX + "2\n"
+    wanted = "We overwrite\nNo overwrite"
+class SnippetOptions_OnlyExpandWhenWSInFront_Expand(_VimTest):
+    snippets = ("test", "Expand me!", "", "b")
+    keys = "test" + EX
+    wanted = "Expand me!"
+class SnippetOptions_OnlyExpandWhenWSInFront_Expand2(_VimTest):
+    snippets = ("test", "Expand me!", "", "b")
+    keys = "   test" + EX
+    wanted = "   Expand me!"
+class SnippetOptions_OnlyExpandWhenWSInFront_DontExpand(_VimTest):
+    snippets = ("test", "Expand me!", "", "b")
+    keys = "a test" + EX
+    wanted = "a test"
+class SnippetOptions_OnlyExpandWhenWSInFront_OneWithOneWO(_VimTest):
+    snippets = (
+        ("test", "Expand me!", "", "b"),
+        ("test", "not at beginning", "", ""),
+    )
+    keys = "a test" + EX
+    wanted = "a not at beginning"
+class SnippetOptions_OnlyExpandWhenWSInFront_OneWithOneWOChoose(_VimTest):
+    snippets = (
+        ("test", "Expand me!", "", "b"),
+        ("test", "not at beginning", "", ""),
+    )
+    keys = "  test" + EX + "1\n"
+    wanted = "  Expand me!"
 
 ######################
 # SELECTING MULTIPLE #
@@ -985,24 +1062,13 @@ if __name__ == '__main__':
     test_loader = unittest.TestLoader()
     all_test_suites = test_loader.loadTestsFromModule(__import__("test"))
 
-    # Send some mappings to vim
-    send(":imapclear\n", options.session)
-    send(":smapclear\n", options.session)
+    # Set the options
+    send(""":let g:UltiSnipsExpandTrigger="<tab>"\n""", options.session)
+    send(""":let g:UltiSnipsJumpForwardTrigger="?"\n""", options.session)
+    send(""":let g:UltiSnipsJumpBackwardTrigger="+"\n""", options.session)
 
-    send(":inoremap <Tab> <C-R>=UltiSnips_ExpandSnippet()<cr>\n",
-         options.session)
-    send(":snoremap <Tab> <Esc>:call UltiSnips_ExpandSnippet()<cr>\n",
-         options.session)
-    send(":inoremap + <C-R>=UltiSnips_JumpBackwards()<cr>\n", options.session)
-    send(":snoremap + <Esc>:call UltiSnips_JumpBackwards()<cr>\n",
-         options.session)
-    send(":inoremap ? <C-R>=UltiSnips_JumpForwards()<cr>\n", options.session)
-    send(":snoremap ? <Esc>:call UltiSnips_JumpForwards()<cr>\n",
-         options.session)
-
-    # Mandatory remapping
-    send(":snoremap <BS> <Esc>:py  UltiSnips_Manager." \
-         "backspace_while_selected()<cr>\n", options.session)
+    # Now, source our runtime
+    send(":so plugin/UltiSnips.vim\n", options.session)
 
     # Inform all test case which screen session to use
     suite = unittest.TestSuite()

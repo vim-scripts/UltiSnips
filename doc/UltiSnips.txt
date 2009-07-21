@@ -9,7 +9,7 @@ UltiSnips                                      *snippet* *snippets* *UltiSnips*
    2.3 Updating                                 |UltiSnips-updating|
 3. Settings                                     |UltiSnips-settings|     
 4. Syntax                                       |UltiSnips-syntax|       
-   4.1 Adding snippets                          |UltiSnips-adding-snippets|
+   4.1 Adding Snippets                          |UltiSnips-adding-snippets|
    4.2 Plaintext snippets                       |UltiSnips-plaintext-snippets|
    4.3 Interpolation                            |UltiSnips-integration|
       4.3.1 Shellcode                           |UltiSnips-shellcode|
@@ -106,12 +106,18 @@ To Update an installation, simply pull the latest revision: >
 =============================================================================
 3. SETTINGS                                              *UltiSnips-settings*
 
-Currently, there are no settings configurable for UltiSnips. The following key
-keys are defined for snippets expansion: >
-   
-   <TAB>     Expands a snippet
-   <c-j>     In insert mode: Jump to the next placeholder
-   <c-k>     Jump to the previous placeholder
+You can freely define the keys used to expand a snippet and jump forward and
+backwards in it. The variables with the default values are: >
+   g:UltiSnipsExpandTrigger               <tab>
+   g:UltiSnipsJumpForwardTrigger          <c-j>
+   g:UltiSnipsJumpBackwardTrigger         <c-k>
+
+It is possible to set the Expand and Forward trigger to the same value. You
+can get a more TextMate like configuration by adding the next three lines to
+you vimrc: >
+   let g:UltiSnipsExpandTrigger="<tab>" 
+   let g:UltiSnipsJumpForwardTrigger="<tab>" 
+   let g:UltiSnipsJumpBackwardTrigger="<s-tab>" 
 
 =============================================================================
 4. SYNTAX                                                  *UltiSnips-syntax*
@@ -134,13 +140,34 @@ special file is >
 which contains snippets that are always expanded, no matter what file type is
 defined. For example, I keep mail signatures and date insertion snippets here. 
 
+The dotted file type syntax of vim is supported. For example, for my cpp or
+CUDA files, i keep the file type set to ":set ft=cpp.c" or ":set
+ft=cuda.cpp.c". This activates all snippets for each file type in the order
+specified.
+
 The snippets file format is simple. A line starting with # is a comment, each
 snippet starts with a line in the form of: >
-   snippet tab_trigger "description"
+   snippet tab_trigger [ "description" [ options ] ]
 The following lines are the snippets definition; a line starting with >
    endsnippet
 marks the end of the snippet. The trailing newline is chopped from the
-definition.
+definition. In the starting line, the description and options are optional.
+
+The description is only needed when more than one snippet is defined with the
+same tab trigger. The user is then given a choice and the description is
+displayed for the user as helper. 
+
+The options is a word of characters, each turning a specific option for this
+snippet on. The options currently supported are >
+   !   Overwrite - This snippet will overwrite all previously defined
+       snippets with this tab trigger. Default is to let the user choose at
+       expansion which snippet to expand. This option is useful to overwrite
+       bundled tab stops with user defined ones.
+   b   Beginning of line - This snippet will only be expanded if you are at
+       the beginning of a line (that is if there are only whitespaces in front
+       of the cursor). Default is to expand snippets at every position, even
+       mitten in the line. Most of my snippets have this option set, it keeps
+       UltiSnips out of the way. 
 
 4.2 Plaintext snippets                         *UltiSnips-plaintext-snippets*
 ----------------------
@@ -219,10 +246,13 @@ can be used: >
    fn   - The current filename
    path - The complete path to the current file
    t    - The values of the placeholders, t[1] -> current text of ${1} and so on
+   cur  - The current text of the placeholder. You can check if this is != ""
+          to make sure that the interpolation is only done once
 
-Also, the re and os modules are already imported inside the snippet code. This
-allows for very flexible snippets. For example, the following snippet mirrors
-the first Tab Stops value on the same line in uppercase and right aligned:
+Also, the vim, re, os, string and random modules are already imported inside
+the snippet code. This allows for very flexible snippets. For example, the
+following snippet mirrors the first Tab Stops value on the same line in
+uppercase and right aligned:
 
 ------------------- SNIP -------------------
 snippet wow
@@ -425,20 +455,6 @@ insight into which direction development is headed. Please feel free to
 comment on any feature here or if you have any good ideas what is missing
 contact me. 
 
- Snippet options:                                   *UltiSnips-snippet-options*
-
-I have a snippet defined that inserts nice comment boxes in code. But I
-sometime get this expanded in the middle of the line. I therefore want to add
-options to the snippet definition like this: >
-   snippet tab_trigger "Description" option_chars
-
-one option would be 
-   b  - beginning; only whitespaces are allowed in front of this trigger
-
-so when I use box<tab> at the beginning of a line, I get my snippet expanded.
-If I use <box> in the middle of the line, nothing will happen or another
-snippet with the same tab trigger but without this option will be expanded.
-
  Cursor key movement:                           *UltiSnips-cursor-key-movement*
 
 Currently, cursor key movement is not possible in snippets. When you use the 
@@ -465,8 +481,8 @@ new snippets, new features or bug reports.
 
 If you like this plugin, please also vote for it on its vim script page. It is
 life changing for me, maybe it is for you too. 
-
-TODO: add link here
+You can find the page here:
+http://www.vim.org/scripts/script.php?script_id=2715
 
 =============================================================================
 7. CONTACT                                                *UltiSnips-contact*
