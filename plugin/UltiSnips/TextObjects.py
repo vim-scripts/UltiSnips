@@ -10,7 +10,6 @@ import vim
 from UltiSnips.Buffer import TextBuffer
 from UltiSnips.Geometry import Span, Position
 
-
 __all__ = [ "Mirror", "Transformation", "SnippetInstance", "StartMarker" ]
 
 ###########################################################################
@@ -66,7 +65,7 @@ class _CleverReplace(object):
                 elif c == ')':
                     if v[idx-1] != '\\':
                         bracks_open -= 1
-                elif c == ':' and not bracks_open:
+                elif c == ':' and not bracks_open and not v[idx-1] == '\\':
                     args.append(carg)
                     carg = ""
                     continue
@@ -110,21 +109,24 @@ class _CleverReplace(object):
 
 class _TOParser(object):
     # A simple tabstop with default value
-    _TABSTOP = re.compile(r'''\${(\d+)[:}]''')
+    _TABSTOP = re.compile(r'''(?<!\\)\${(\d+)[:}]''')
     # A mirror or a tabstop without default value.
-    _MIRROR_OR_TS = re.compile(r'\$(\d+)')
+    _MIRROR_OR_TS = re.compile(r'(?<!\\)\$(\d+)')
     # A mirror or a tabstop without default value.
-    _TRANSFORMATION = re.compile(r'\${(\d+)/(.*?)/(.*?)/([a-zA-z]*)}')
+    _TRANSFORMATION = re.compile(r'(?<!\\)\${(\d+)/(.*?)/(.*?)/([a-zA-z]*)}')
     # The beginning of a shell code fragment
-    _SHELLCODE = re.compile(r'(?!<\\)`')
+    _SHELLCODE = re.compile(r'(?<!\\)`')
     # The beginning of a python code fragment
-    _PYTHONCODE = re.compile(r'(?!<\\)`!p')
+    _PYTHONCODE = re.compile(r'(?<!\\)`!p')
     # The beginning of a vimL code fragment
-    _VIMCODE = re.compile(r'(?!<\\)`!v')
+    _VIMCODE = re.compile(r'(?<!\\)`!v')
+    # Escaped characters in substrings
+    _UNESCAPE = re.compile(r'\\[`$]')
 
-    def __init__(self, parent, val):
+    def __init__(self, parent, val, indent):
         self._v = val
         self._p = parent
+        self._indent = indent
 
         self._childs = []
 
@@ -138,7 +140,33 @@ class _TOParser(object):
         self._parse_shellcode()
         self._parse_transformations()
         self._parse_mirrors_or_ts()
+
+        self._parse_escaped_chars()
+
         self._finish()
+
+    #################
+    # Escaped chars #
+    #################
+    def _parse_escaped_chars(self):
+        m = self._UNESCAPE.search(self._v)
+        while m:
+            self._handle_unescape(m)
+            m = self._UNESCAPE.search(self._v)
+
+        for c in self._childs:
+            c._parse_escaped_chars()
+
+    def _handle_unescape(self, m):
+        start_pos = m.start()
+        end_pos = start_pos + 2
+        char = self._v[start_pos+1]
+
+        start, end = self._get_start_end(self._v,start_pos,end_pos)
+
+        self._overwrite_area(start_pos,end_pos)
+
+        return EscapedChar(self._p, start, end, char)
 
     ##############
     # Shell Code #
@@ -187,7 +215,17 @@ class _TOParser(object):
 
         self._overwrite_area(start_pos,end_pos)
 
-        return PythonCode(self._p, start, end, content)
+        # Strip the indent if any
+        if len(self._indent):
+            lines = content.splitlines()
+            new_content = lines[0] + '\n'
+            new_content += '\n'.join([l[len(self._indent):]
+                        for l in lines[1:]])
+        else:
+            new_content = content
+        new_content = new_content.strip()
+
+        return PythonCode(self._p, start, end, new_content, self._indent)
 
     #############
     # VimL Code #
@@ -227,7 +265,7 @@ class _TOParser(object):
             m = self._TABSTOP.search(self._v)
 
         for t, def_text in ts:
-            child_parser = _TOParser(t, def_text)
+            child_parser = _TOParser(t, def_text, self._indent)
             child_parser._parse_tabs()
             self._childs.append(child_parser)
 
@@ -323,6 +361,7 @@ class _TOParser(object):
             if ts is None:
                 raise RuntimeError, "Tabstop %i is not known" % t._ts
             t._ts = ts
+
 
     ####################
     # Helper functions #
@@ -555,6 +594,15 @@ class TextObject(object):
     def _add_tabstop(self, no, ts):
         self._tabstops[no] = ts
 
+class EscapedChar(TextObject):
+    """
+    This class is a escape char like \$. It is handled in a text object
+    to make sure that remaining children are correctly moved after
+    replacing the text.
+
+    This is a base class without functionality just to mark it in the code.
+    """
+    pass
 
 
 class StartMarker(TextObject):
@@ -656,15 +704,186 @@ class _Tabs(object):
             return ""
         return ts.current_text
 
+class SnippetUtil(object):
+    """ Provides easy access to indentation, etc.
+    """
+
+    def __init__(self, initial_indent, cur=""):
+        self._sw = int(vim.eval("&sw"))
+        self._sts = int(vim.eval("&sts"))
+        self._et = (vim.eval("&expandtab") == "1")
+        self._ts = int(vim.eval("&ts"))
+
+        self._initial_indent = self._indent_to_spaces(initial_indent)
+
+        self._reset(cur)
+
+    def _reset(self, cur):
+        """ Gets the snippet ready for another update.
+
+        :cur: the new value for c.
+        """
+        self._c = cur
+        self._rv = ""
+        self._changed = False
+        self.reset_indent()
+
+    def shift(self, amount=1):
+        """ Shifts the indentation level.
+        Note that this uses the shiftwidth because thats what code
+        formatters use.
+
+        :amount: the amount by which to shift.
+        """
+        self.indent += " " * self._sw * amount
+
+    def unshift(self, amount=1):
+        """ Unshift the indentation level.
+        Note that this uses the shiftwidth because thats what code
+        formatters use.
+
+        :amount: the amount by which to unshift.
+        """
+        by = -self._sw * amount
+        try:
+            self.indent = self.indent[:by]
+        except IndexError:
+            indent = ""
+
+    def _indent_to_spaces(self, indent):
+        """ converts indentation to spaces. """
+        indent = indent.replace(" " * self._ts, "\t")
+        right = (len(indent) - len(indent.rstrip(" "))) * " "
+        indent = indent.replace(" ", "")
+        indent = indent.replace('\t', " " * self._ts)
+        return indent + right
+
+    def _spaces_to_indent(self, indent):
+        """ Converts spaces to proper indentation respecting
+        et, ts, etc.
+        """
+        if not self._et:
+            indent = indent.replace(" " * self._ts, '\t')
+        return indent
+
+    def mkline(self, line="", indent=None):
+        """ Creates a properly set up line.
+
+        :line: the text to add
+        :indent: the indentation to have at the beginning
+                 if None, it uses the default amount
+        """
+        if indent == None:
+            indent = self.indent
+            # this deals with the fact that the first line is
+            # already properly indented
+            if '\n' not in self._rv:
+                try:
+                    indent = indent[len(self._initial_indent):]
+                except IndexError:
+                    indent = ""
+            indent = self._spaces_to_indent(indent)
+
+        return indent + line
+
+    def reset_indent(self):
+        """ Clears the indentation. """
+        self.indent = self._initial_indent
+
+    # Utility methods
+    @property
+    def fn(self):
+        """ The filename. """
+        return vim.eval('expand("%:t")') or ""
+
+    @property
+    def basename(self):
+        """ The filename without extension. """
+        return vim.eval('expand("%:t:r")') or ""
+
+    @property
+    def ft(self):
+        """ The filetype. """
+        return self.opt("&filetype", "")
+
+    # Necessary stuff
+    def rv():
+        """ The return value.
+        This is a list of lines to insert at the
+        location of the placeholder.
+
+        Deprecates res.
+        """
+        def fget(self):
+            return self._rv
+        def fset(self, value):
+            self._changed = True
+            self._rv = value
+        return locals()
+    rv = property(**rv())
+
+    @property
+    def _rv_changed(self):
+        """ True if rv has changed. """
+        return self._changed
+
+    @property
+    def c(self):
+        """ The current text of the placeholder.
+
+        Deprecates cur.
+        """
+        return self._c
+
+    def opt(self, option, default=None):
+        """ Gets a vim variable. """
+        if vim.eval("exists('%s')" % option) == "1":
+            try:
+                return vim.eval(option)
+            except vim.error:
+                pass
+        return default
+
+    # Syntatic sugar
+    def __add__(self, value):
+        """ Appends the given line to rv using mkline. """
+        self.rv += '\n' # handles the first line properly
+        self.rv += self.mkline(value)
+        return self
+
+    def __lshift__(self, other):
+        """ Same as unshift. """
+        self.unshift(other)
+
+    def __rshift__(self, other):
+        """ Same as shift. """
+        self.shift(other)
+
+
 class PythonCode(TextObject):
-    def __init__(self, parent, start, end, code):
+    def __init__(self, parent, start, end, code, indent=""):
 
         code = code.replace("\\`", "`")
 
+        # Find our containing snippet for snippet local data
+        snippet = parent
+        while snippet and not isinstance(snippet, SnippetInstance):
+            try:
+                snippet = snippet._parent
+            except AttributeError:
+                snippet = None
+        self._snip = SnippetUtil(indent)
+        self._locals = snippet.locals
+
+        self._globals = {}
+        globals = snippet.globals.get("!p", [])
+        exec "\n".join(globals) in self._globals
+
         # Add Some convenience to the code
-        self._code = "import re, os, vim, string, random\n" + code.strip()
+        self._code = "import re, os, vim, string, random\n" + code
 
         TextObject.__init__(self, parent, start, end, "")
+
 
     def _do_update(self):
         path = vim.eval('expand("%")')
@@ -673,17 +892,24 @@ class PythonCode(TextObject):
         fn = os.path.basename(path)
 
         ct = self.current_text
-        d = {
+        self._snip._reset(ct)
+        local_d = self._locals
+
+        local_d.update({
             't': _Tabs(self),
             'fn': fn,
             'path': path,
             'cur': ct,
             'res': ct,
-        }
+            'snip' : self._snip,
+        })
 
-        exec self._code in d
-        self.current_text = str(d["res"])
+        exec self._code in self._globals, local_d
 
+        if self._snip._rv_changed:
+            self.current_text = self._snip.rv
+        else:
+            self.current_text = str(local_d["res"])
 
     def __repr__(self):
         return "PythonCode(%s -> %s)" % (self._start, self._end)
@@ -713,16 +939,18 @@ class SnippetInstance(TextObject):
     also a TextObject because it has a start an end
     """
 
-    # TODO: for beauty sake, start and end should come before initial text
-    def __init__(self, parent, initial_text, start = None, end = None):
+    def __init__(self, parent, indent, initial_text, start = None, end = None, last_re = None, globals = None):
         if start is None:
             start = Position(0,0)
         if end is None:
             end = Position(0,0)
 
+        self.locals = {"match" : last_re}
+        self.globals = globals
+
         TextObject.__init__(self, parent, start, end, initial_text)
 
-        _TOParser(self, initial_text).parse()
+        _TOParser(self, initial_text, indent).parse()
 
         # Check if we have a zero Tab, if not, add one at the end
         if isinstance(parent, TabStop):
@@ -753,20 +981,14 @@ class SnippetInstance(TextObject):
     has_tabs = property(has_tabs)
 
     def _get_tabstop(self, requester, no):
-        # SnippetInstances are completly self contained,
-        # therefore, we do not need to ask our parent
-        # for Tabstops
-        # TODO: otherwise, this code is identical to
-        # TextObject._get_tabstop
-        if no in self._tabstops:
-            return self._tabstops[no]
-        for c in self._childs:
-            if c is requester:
-                continue
+        # SnippetInstances are completely self contained, therefore, we do not
+        # need to ask our parent for Tabstops
+        p = self._parent
+        self._parent = None
+        rv = TextObject._get_tabstop(self, requester, no)
+        self._parent = p
 
-            rv = c._get_tabstop(self, no)
-            if rv is not None:
-                return rv
+        return rv
 
     def select_next_tab(self, backwards = False):
         if self._cts is None:

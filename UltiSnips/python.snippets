@@ -11,25 +11,87 @@ endsnippet
 
 snippet ifmain "ifmain" b
 if __name__ == '__main__':
-    ${1:main()}$0
+	${1:main()}$0
 endsnippet
 
 
 ##########
 # COMMON #
 ##########
+
+# The smart def and smart class snippets use a global option called
+# "g:ultisnips_python_style" which, if set to "doxygen" will use doxygen
+# style comments in docstrings.
+
+global !p
+def get_args(arglist, snip):
+    args = [arg.split('=')[0].strip() for arg in arglist.split(',') if arg]
+    args = [arg for arg in args if arg and arg != "self"]
+
+    if args:
+        snip += ""
+
+    for arg in args:
+        style = snip.opt("g:ultisnips_python_style", "normal")
+        if style == "doxygen":
+            snip += "@param %s TODO" % arg
+        else:
+            snip += ":%s: TODO" % arg
+    return args
+endglobal
+
 snippet class "smart class" b
 class ${1:MyClass}(${2:object}):
-    """${3:Docstring for $1}"""
+	""" ${3:Docstring for $1 }"""
 
-    def __init__( self${4/([^,])?(.*)/(?1:, )/}${4:arg} ):
-        """
-        TODO: Fill me in
-${4/.+/(?0:\n)/}${4/(\A\s*,\s*\Z)|,?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(=[^,]*)?(,\s*|$)/(?2:        $2 - describe me here\n)/g}        """
-${2/object$|(.+)/(?1:        $0.__init__\(self\)\n\n)/}${4/(\A\s*,\s*\Z)|,?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(=[^,]*)?(,\s*|$)/(?2:        self._$2 = $2\n)/g}
+	def __init__(self$4):
+		""" ${5:TODO: Fill me in}`!p
+snip.rv = ""
+snip >> 2
+
+args = get_args(t[4], snip)
+
+if args:
+    snip += '"""'
+else:
+    snip.rv += ' """'
+
+for sup in t[2].split(","):
+    sup = sup.strip()
+    snip += sup + ".__init__(self)"
+
+for arg in args:
+    snip += "self._%s = %s" % (arg, arg)
+`
+		$0
 endsnippet
 
-snippet .
+snippet def "smart def" b
+def ${1:function}(${2:self}):
+    """ ${3:TODO: Docstring for $1}`!p
+snip.rv = "" # Force update
+snip >> 1
+
+args = get_args(t[2], snip)
+
+`${4:
+
+    `!p
+snip.rv = "" # Force update
+style = snip.opt("g:ultisnips_python_style", "normal")
+
+if style == "doxygen":
+    snip.rv = "@return"
+else:
+    snip.rv = ":returns:"` ${5:TODO}
+    }"""
+    ${0:pass}
+
+endsnippet
+
+
+# doesn't expand when there is a word in front
+snippet /(^|(?<=\W))\./ "self." r
 self.
 endsnippet
 
@@ -43,16 +105,16 @@ endsnippet
 snippet roprop "Read Only Property" b
 @property
 def ${1:property}(self):
-    ${2:return self._$1}$0
+	${2:return self._$1}$0
 endsnippet
 
 snippet rwprop "Read write property" b
 def ${1:property}():
-    ${2/.+/(?0:""")/}${2:The RW property $1}${2/.+/(?0:"""\n        )/}def fget(self):
-        return self._$1$0
-    def fset(self, value):
-        self._$1 = value
-    return locals()
+	${2/.+/(?0:""")/}${2:The RW property $1}${2/.+/(?0:"""\n		)/}def fget(self):
+		return self._$1$0
+	def fset(self, value):
+		self._$1 = value
+	return locals()
 $1 = property(**$1())
 endsnippet
 
@@ -61,38 +123,38 @@ endsnippet
 ##########################
 snippet try "Try / Except" b
 try:
-    ${1:pass}
+	${1:pass}
 except ${2:Exception}, ${3:e}:
-    ${4:raise $3}
+	${4:raise $3}
 endsnippet
 
 snippet try "Try / Except / Else" b
 try:
-    ${1:pass}
+	${1:pass}
 except ${2:Exception}, ${3:e}:
-    ${4:raise $3}
+	${4:raise $3}
 else:
-    ${5:pass}
+	${5:pass}
 endsnippet
 
 snippet try "Try / Except / Finally" b
 try:
-    ${1:pass}
+	${1:pass}
 except ${2:Exception}, ${3:e}:
-    ${4:raise $3}
-else:
-    ${5:pass}
+	${4:raise $3}
+finally:
+	${5:pass}
 endsnippet
 
 snippet try "Try / Except / Else / Finally" b
 try:
-    ${1:pass}
+	${1:pass}
 except${2: ${3:Exception}, ${4:e}}:
-    ${5:raise}
+	${5:raise}
 else:
-    ${6:pass}
+	${6:pass}
 finally:
-    ${7:pass}
+	${7:pass}
 endsnippet
 
 ##############

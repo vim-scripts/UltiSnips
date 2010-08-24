@@ -4,40 +4,50 @@
 ##############
 # NICE BOXES #
 ##############
+global !p
+def cs(snip):
+    c = '#'
+    cs = snip.opt("&commentstring")
+    if len(cs) == 3:
+        c = cs[0]
+    return c
+endglobal
+
 snippet box "A nice box with the current comment symbol" b
 `!p
-c = '#'
-cs = vim.eval("&commentstring")
-if len(cs) == 3:
-    c = cs[0]
+c = cs(snip)
 
-res = (len(t[1])+4)*c + '\n' + c + ' '`${1:content}`!p
-c = '#'
-cs = vim.eval("&commentstring")
-if len(cs) == 3:
-    c = cs[0]
+snip.rv = (len(t[1])+4)*c
+bar = snip.rv
+snip += c + ' '`${1:content}`!p
 
-res = ' ' + c + '\n' + (len(t[1])+4)*c`
+snip.rv = ' ' + c
+snip += bar`
 $0
 endsnippet
 
 snippet bbox "A nice box over the full width" b
 `!p
-c = '#'
-cs = vim.eval("&commentstring")
-if len(cs) == 3:
-    c = cs[0]
+c = cs(snip)
+bar = 75*c 
 
-res = 75*c + '\n' + c + " "+ (71-len(t[1]))/2*' '
+snip.rv = bar
+snip += c + " " + (71-len(t[1]))/2*' '
 `${1:content}`!p
-c = '#'
-cs = vim.eval("&commentstring")
-if len(cs) == 3:
-    c = cs[0]
 
-a = 71-len(t[1]); res = (a/2 + a%2) * " " + " " + c + '\n' + 75*c`
+a = 71-len(t[1])
+snip.rv = (a/2 + a%2) * " " + " " + c 
+snip += bar`
 $0
 endsnippet
+
+##########################
+# LOREM IPSUM GENERATORS #
+##########################
+snippet lorem "Lorem Ipsum - 50 Words" b
+Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.
+endsnippet
+
 
 
 
