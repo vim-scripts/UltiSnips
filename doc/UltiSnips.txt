@@ -7,8 +7,13 @@ UltiSnips                                      *snippet* *snippets* *UltiSnips*
    2.1 Installation                             |UltiSnips-installation|
    2.2 Deinstallation                           |UltiSnips-deinstallation|
    2.3 Updating                                 |UltiSnips-updating|
-3. Settings                                     |UltiSnips-settings|
-   3.1 Warning About Select Mode Mappings       |UltiSnips-warning-smappings|
+3. Settings & Commands                          |UltiSnips-settings|
+   3.1 Commands                                 |UltiSnips-commands|
+   3.2 Global Variables                         |UltiSnips-global-variables|
+   3.3 Warning About Select Mode Mappings       |UltiSnips-warning-smappings|
+   3.4 Functions                                |UltiSnips-functions|
+      3.4.1 UltiSnips_AddSnippet                |UltiSnips_AddSnippet|
+      3.4.2 UltiSnips_Anon                      |UltiSnips_Anon|
 4. Syntax                                       |UltiSnips-syntax|
    4.1 Adding Snippets                          |UltiSnips-adding-snippets|
    4.2 Plaintext Snippets                       |UltiSnips-plaintext-snippets|
@@ -111,6 +116,24 @@ To Update an installation, simply pull the latest revision: >
 =============================================================================
 3. SETTINGS                                              *UltiSnips-settings*
 
+3.1 Commands                                             *UltiSnips-commands*
+------------
+
+UltiSnips defines two Commands, the first one is UltiSnipsReset, which will
+reload the snippets definitions and is useful while you are tweaking a
+snippet.
+UltiSnipsEdit is the second one. It opens your private snippet definition file
+for the current filetype. You can easily open them manually of course, this is
+just a shortcut. There is also a variable called: >
+
+   g:UltiSnipsEditSplit 
+
+which can be set to "normal", "horizontal" or "vertical" that defines if a new
+window should be opened for the edit.
+
+3.2 Global Variables                             *UltiSnips-global-variables*
+--------------------
+
 You can freely define the keys used to expand a snippet and jump forward and
 backwards in it. There is also a key to list all snippets available for the
 current expand situation. The variables with the default values are: >
@@ -126,7 +149,8 @@ you vimrc: >
    let g:UltiSnipsJumpForwardTrigger="<tab>"
    let g:UltiSnipsJumpBackwardTrigger="<s-tab>"
 
-3.1 Warning About Select Mode Mappings          *UltiSnips-warning-smappings*
+
+3.3 Warning About Select Mode Mappings          *UltiSnips-warning-smappings*
 --------------------------------------
 
 The help for vim's *mapmode-s* states: >
@@ -150,6 +174,33 @@ this feature. For example >
 
 will not unmap any mapping that contains the string "somePlugin" or
 "otherPlugin" in its complete definition as listed by *:smap* .
+
+
+3.4 Functions                                           *UltiSnips-functions*
+-------------
+
+Ultisnips provides two functions for extending core functionality.
+
+ 3.4.1 UltiSnips_AddSnippet                            *UltiSnips_AddSnippet*
+
+The first function is UltiSnips_AddSnippet(trigger, value, description,
+options, ...) which adds a new snippet to the current list of snippets with
+the provided trigger, value, description, and options, see |UltiSnips-syntax|
+for details on the meaning of those. All of the arguments are strings. You can
+also specify the filetype for the new snippet with the final optional
+argument.
+
+ 3.4.2 UltiSnips_Anon                                        *UltiSnips_Anon*
+
+The second function is UltiSnips_Anon(value, ...), which expands an anonymous
+Snippet. The snippet that gets expanded doesn't get added to the global list
+of snippets, so it can't be expanded a second time unless the function is
+called again. The value argument is the same as |UltiSnips_AddSnippet|. There
+are also optional arguments, which are 1) the trigger, 2) the description of
+the snippet, and 3) the options. All of the optional arguments are the same as
+the |UltiSnips_AddSnippet| function. The description is unused right now,
+whereas the trigger and options can change the way the snippet expands.
+
 
 =============================================================================
 4. SYNTAX                                                  *UltiSnips-syntax*
@@ -229,6 +280,11 @@ snippet on. The options currently supported are >
        trigger (see above) even if it doesn't have any spaces. The resulting
        match is also passed to any python code blocks in your snippet
        definition as the local variable "match".
+   t   Don't expand tabs - By default, UltiSnips tries to expand leading tabs
+       in a snippet to match the results of automatic indentation. If this
+       option is set, UltiSnips will not try to do this expansion, and will
+       leave the tabs alone. This can be useful for snippets dealing with
+       tab delimited formats, etc..
 
 4.2 Plaintext Snippets                         *UltiSnips-plaintext-snippets*
 ----------------------
@@ -645,6 +701,7 @@ Contributers are listed in chronological order:
    Michael Henry
    Chris Chambers
    Ryan Wooden
+   rupa - Rupa Deadwyler
 
 7.2 Snippets                                       *UltiSnips-contrisnippets*
 ------------
@@ -653,6 +710,8 @@ Contributers are listed in chronological order:
 
    Alec Thomas (Python, smart def)
    Ryan Wooden
+   Ches Martin
+   Gordin (g0rdin)
 
 
 

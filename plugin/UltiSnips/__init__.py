@@ -10,6 +10,7 @@ import vim
 from UltiSnips.Geometry import Position
 from UltiSnips.TextObjects import *
 from UltiSnips.Buffer import VimBuffer
+from UltiSnips.Util import IndentUtil
 
 # The following lines silence DeprecationWarnings. They are raised
 # by python2.6 for vim.error (which is a string that is used as an exception,
@@ -114,7 +115,7 @@ class _SnippetsFileParser(object):
         snip = line.split()[0]
 
         # Get and strip options if they exist
-        remain = line[len(snip):].lstrip()
+        remain = line[len(snip):].strip()
         words = remain.split()
         if len(words) > 2:
             # second to last word ends with a quote
@@ -192,6 +193,7 @@ class _SnippetsFileParser(object):
 
 class Snippet(object):
     _INDENT = re.compile(r"^[ \t]*")
+    _TABS = re.compile(r"^\t*")
 
     def __init__(self, trigger, value, descr, options, globals):
         self._t = trigger
@@ -201,6 +203,7 @@ class Snippet(object):
         self._matched = ""
         self._last_re = None
         self._globals = globals
+        self._util = IndentUtil()
 
     def __repr__(self):
         return "Snippet(%s,%s,%s)" % (self._t,self._d,self._opts)
@@ -231,17 +234,15 @@ class Snippet(object):
         """ Test if a the current regex trigger matches
         `trigger`. If so, set _last_re and _matched.
         """
-        match = re.search(self._t, trigger)
-        if match:
+        for match in re.finditer(self._t, trigger):
             if match.end() != len(trigger):
-                match = False
+                continue
             else:
                 self._matched = trigger[match.start():match.end()]
-        if match:
+
             self._last_re = match
-        else:
-            self._last_re = None
-        return match
+            return match
+        return False
 
     def matches(self, trigger):
         # If user supplies both "w" and "i", it should perhaps be an
@@ -346,20 +347,26 @@ class Snippet(object):
 
     def launch(self, text_before, parent, start, end = None):
         indent = self._INDENT.match(text_before).group(0)
-        v = self._v
-        if len(indent):
-            lines = self._v.splitlines()
-            v = lines[0]
-            if len(lines) > 1:
-                v += os.linesep + \
-                        os.linesep.join([indent + l for l in lines[1:]])
+        lines = (self._v + "\n").splitlines()
+        self._util.reset()
 
-        if vim.eval("&expandtab") == '1':
-            ts = int(vim.eval("&ts"))
-            # expandtabs will not work for us, we have to replace all tabstops
-            # so that indent is right at least. tabs in the middle of the line
-            # will not be expanded correctly
-            v = v.replace('\t', ts*" ")
+        v = []
+        for line_num, line in enumerate(lines[0:]):
+            if "t" in self._opts:
+                tabs = 0
+            else:
+                tabs = len(self._TABS.match(line).group(0))
+
+            if line_num == 0:
+                line_ind = ""
+            else:
+                line_ind = indent
+
+            line_ind += tabs * self._util.sw * " "
+            line_ind = self._util.indent_to_spaces(line_ind)
+            line_ind = self._util.spaces_to_indent(line_ind)
+            v.append(line_ind + line[tabs:])
+        v = os.linesep.join(v)
 
         if parent is None:
             return SnippetInstance(StartMarker(start), indent,
@@ -553,8 +560,7 @@ class VimState(object):
 
                 # Check if any mappings where found
                 all_maps = filter(len, vim.eval(r"_tmp_smaps").splitlines())
-                if (len(all_maps) == 1 and
-                    all_maps[0][0] not in " sv"):
+                if (len(all_maps) == 1 and all_maps[0][0] not in " sv"):
                         # "No maps found". String could be localized. Hopefully
                         # it doesn't start with any of these letters in any
                         # language
@@ -565,12 +571,9 @@ class VimState(object):
                             not any(i in m for i in ignores) and len(m.strip())]
 
                 for m in maps:
-                    # Some mappings have their modes listed
-                    trig = m.split()
-                    if m[0] == " ":
-                        trig = trig[0]
-                    else:
-                        trig = trig[1]
+                    # The first three chars are the modes, that might be listed.
+                    # We are not interested in them here.
+                    trig = m[3:].split()[0]
 
                     # The bar separates commands
                     if trig[-1] == "|":
@@ -648,6 +651,19 @@ class SnippetManager(object):
         l = self._snippets[ft].add_snippet(
             Snippet(trigger, value, descr, options, globals or {})
         )
+
+    def expand_anon(self, value, trigger="", descr="", options="", globals=None):
+        if globals is None:
+            globals = {}
+
+        before, after = self._get_before_after()
+        snip = Snippet(trigger, value, descr, options, globals)
+
+        if snip.matches(before):
+            self._do_snippet(snip, before, after)
+            return True
+        else:
+            return False
 
     def clear_snippets(self, triggers = [], ft = "all"):
         if ft in self._snippets:
@@ -900,7 +916,10 @@ class SnippetManager(object):
         """
         lineno,col = vim.current.window.cursor
         # Adjust before, maybe the trigger is not the complete word
-        text_before = before[:-len(snippet.matched)]
+
+        text_before = before
+        if snippet.matched:
+            text_before = before[:-len(snippet.matched)]
 
         self._expect_move_wo_change = True
         if self._cs:

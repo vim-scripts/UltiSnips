@@ -47,7 +47,54 @@ if !exists("g:UltiSnipsMappingsToIgnore")
    let g:UltiSnipsMappingsToIgnore = []
 endif
 
+" UltiSnipsEdit will use this variable to decide if a new window
+" is opened when editing. default is "normal", allowed are also
+" "vertical", "horizontal"
+if !exists("g:UltiSnipsEditSplit")
+   let g:UltiSnipsEditSplit = 'normal'
+endif
+
 " }}}
+
+"" Global Commands {{{
+
+" reset/reload snippets
+command! -nargs=0 UltiSnipsReset :py UltiSnips_Manager.reset()
+
+function! UltiSnipsEdit(...)
+	if a:0 == 1 && a:1 != ''
+		let type = a:1
+	elseif &filetype != ''
+		let type = split(&filetype, '\.')[0]
+	else
+		let type = 'all'
+	endif
+
+	if exists('g:UltiSnipsSnippetsDir')
+		let mode = 'e'
+		if exists('g:UltiSnipsEditSplit')
+			if g:UltiSnipsEditSplit == 'vertical'
+				let mode = 'vs'
+			elseif g:UltiSnipsEditSplit == 'horizontal'
+				let mode = 'sp'
+			endif
+		endif
+		exe ':'.mode.' '.g:UltiSnipsSnippetsDir.'/'.type.'.snippets'
+	else
+		for dir in split(&runtimepath, ',')
+			if isdirectory(dir.'/UltiSnips')
+				let g:UltiSnipsSnippetsDir = dir.'/UltiSnips'
+				call UltiSnipsEdit(type)
+				break
+			endif
+		endfor
+	endif
+endfunction
+
+" edit snippets, default of current file type or the specified type
+command! -nargs=? UltiSnipsEdit :call UltiSnipsEdit(<q-args>)
+
+"" }}}
 
 "" FUNCTIONS {{{
 function! CompensateForPUM()
@@ -88,6 +135,32 @@ function! UltiSnips_JumpForwards()
  return ""
 endfunction
 
+function! UltiSnips_AddSnippet(trigger, value, descr, options, ...)
+ " Takes the same arguments as SnippetManager.add_snippet:
+ " (trigger, value, descr, options, ft = "all", globals = None)
+py << EOB
+args = vim.eval("a:000")
+trigger = vim.eval("a:trigger")
+value = vim.eval("a:value")
+descr = vim.eval("a:descr")
+options = vim.eval("a:options")
+
+UltiSnips_Manager.add_snippet(trigger, value, descr, options, *args)
+EOB
+ return ""
+endfunction
+
+function! UltiSnips_Anon(value, ...)
+ " Takes the same arguments as SnippetManager.expand_anon:
+ " (value, trigger="", descr="", options="", globals = None)
+py << EOB
+args = vim.eval("a:000")
+value = vim.eval("a:value")
+UltiSnips_Manager.expand_anon(value, *args)
+EOB
+ return ""
+endfunction
+
 function! UltiSnips_MapKeys()
    " Map the keys correctly
    if g:UltiSnipsExpandTrigger == g:UltiSnipsJumpForwardTrigger
@@ -115,12 +188,8 @@ endf
 python << EOF
 import vim, os, sys
 
-for p in vim.eval("&runtimepath").split(','):
-   dname = p + os.path.sep + "plugin"
-   if os.path.exists(dname + os.path.sep + "UltiSnips"):
-      if dname not in sys.path:
-         sys.path.append(dname)
-      break
+new_path = vim.eval('expand("<sfile>:h")')
+sys.path.append(new_path)
 
 from UltiSnips import UltiSnips_Manager
 UltiSnips_Manager.expand_trigger = vim.eval("g:UltiSnipsExpandTrigger")
