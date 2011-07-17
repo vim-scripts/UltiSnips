@@ -1,8 +1,8 @@
 This is a mirror of http://www.vim.org/scripts/script.php?script_id=2715
 
-This is the initial release of UltiSnips. It is the Ultimate solution for snippets under Vim. Snippets are intelligent text that spares you a lot of typing. Like many snippets solutions, this one ins heavily inspired by TextMates Snippet Syntax and offers all features that TextMate offers. But in Vim.
+UltiSnips is the Ultimate solution for snippets under Vim. Snippets are intelligent texts that spare you a lot of typing. Like many snippets solutions, this one ins heavily inspired by TextMates Snippet Syntax and offers all features that TextMate offers plus some more. But in Vim.
 
-This release features the following features:
+UltiSnips has the following features (incomplete list):
 
 - TextMates snippet syntax
 - Tabstops, Placeholders (also nested)
@@ -13,11 +13,18 @@ This release features the following features:
 - same name, multiple snippets
 - recursive snippets: snippet in snippet
 - forward and backward jumping to placeholders and tab stops
-- convert script to download and convert TM bundles
-- > 150 unit tests to guarantee that stuff works.
-- Tested on Linux and Mac OS X
+- convert script to download and convert TM bundles, convert script to reuse snipmates snippets.
+- automatically reload snippet definition files when they changed.
+- extend existing snippet definitions. For example cpp extends c, so that all c snippets are also available in cpp.
+- options for snippets: expand only at the beginning of line, inword, convert tabs-to-spaces....
+- multi word or regular expression triggers are supported and awesome!
+- support for anonymous triggers that other scripts can define on the fly e.g. for automatic completion of parameters of your own functions.
+- > 325 unit tests to guarantee that stuff works.
+- Tested on Linux, Mac OS X and Windows.
 
-There have been many attempts to do things right; I think, this one nails it. 
+There have been many attempts to do things right; I think, this one nails it.
+
+UltiSnips is a community project, more than 15 people have contributed to it so far. Join in by providing feedback, snippets or code!
 
 Try it:
 Example 1:

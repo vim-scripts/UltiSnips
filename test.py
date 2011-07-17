@@ -23,20 +23,31 @@
 #
 # The testsuite will use ``screen`` to inject commands into the Vim under test,
 # and will compare the resulting output to expected results.
+#
 
 import os
 import tempfile
 import unittest
 import time
+import re
+import platform
+
+WIN = platform.system() == "Windows"
+
 from textwrap import dedent
 
+
+
 # Some constants for better reading
-BS = '\x7f'
-ESC = '\x1b'
-ARR_L = '\x1bOD'
-ARR_R = '\x1bOC'
-ARR_U = '\x1bOA'
-ARR_D = '\x1bOB'
+BS = u'\x7f'
+ESC = u'\x1b'
+ARR_L = u'\x1bOD'
+ARR_R = u'\x1bOC'
+ARR_U = u'\x1bOA'
+ARR_D = u'\x1bOB'
+
+# multi-key sequences generating a single key press
+SEQUENCES = [ARR_L, ARR_R, ARR_U, ARR_D]
 
 # Defined Constants
 JF = "?" # Jump forwards
@@ -49,9 +60,93 @@ EA = "#" # Expand anonymous
 COMPL_KW = chr(24)+chr(14)
 COMPL_ACCEPT = chr(25)
 
-def send(s,session):
+
+################ windows ################
+
+if WIN:
+    # import windows specific modules
+    import win32com.client, win32gui
+    shell = win32com.client.Dispatch("WScript.Shell")
+
+def focus_win(title=None):
+    if not shell.AppActivate(title or "- GVIM"):
+        raise Exception("Failed to switch to GVim window")
+    time.sleep(1)
+
+def is_focused(title=None):
+    cur_title = win32gui.GetWindowText(win32gui.GetForegroundWindow())
+    if (title or "- GVIM") in cur_title:
+        return True
+    return False
+
+BRACES = re.compile("([}{])")
+WIN_ESCAPES = ["+", "^", "%", "~", "[", "]", "<", ">", "(", ")"]
+WIN_REPLACES = [
+        (BS, u"{BS}"),
+        (ARR_L, u"{LEFT}"),
+        (ARR_R, u"{RIGHT}"),
+        (ARR_U, u"{UP}"),
+        (ARR_D, u"{DOWN}"),
+        ("\t", u"{TAB}"),
+        ("\n", u"~"),
+        (ESC, u"{ESC}"),
+
+        # On my system ` waits for a second keystroke, so `+SPACE = "`".  On
+        # most systems, `+Space = "` ". I work around this, by sending the host
+        # ` as `+_+BS. Awkward, but the only way I found to get this working.
+        (u"`", u"`_{BS}"),
+        (u"´", u"´_{BS}"),
+        (u"{^}", u"{^}_{BS}"),
+]
+def convert_keys(keys):
+    keys = BRACES.sub(ur"{\1}", keys)
+    for k in WIN_ESCAPES:
+        keys = keys.replace(k, u"{%s}" % k)
+    for f, r in WIN_REPLACES:
+        keys = keys.replace(f, r)
+    return keys
+
+SEQ_BUF = []
+def send_win(keys, session):
+    global SEQ_BUF
+    SEQ_BUF.append(keys)
+    seq = "".join(SEQ_BUF)
+
+    for f in SEQUENCES:
+        if f.startswith(seq) and f != seq:
+            return
+    SEQ_BUF = []
+
+    seq = convert_keys(seq)
+
+    if not is_focused():
+        time.sleep(2)
+        focus()
+    if not is_focused():
+        # This is the only way I can find to stop test execution
+        raise KeyboardInterrupt("Failed to focus GVIM")
+
+    shell.SendKeys(seq)
+
+################ end windows ################
+
+
+
+
+def send_screen(s,session):
     s = s.replace("'", r"'\''")
-    os.system("screen -x %s -X stuff '%s'" % (session, s))
+    os.system((u"screen -x %s -X stuff '%s'" % (session, s)).encode("utf-8"))
+
+
+def send(s, session):
+    if WIN:
+        send_win(s, session)
+    else:
+        send_screen(s, session)
+
+def focus(title=None):
+    if WIN:
+        focus_win(title=title)
 
 def type(str, session, sleeptime):
     """
@@ -71,6 +166,11 @@ class _VimTest(unittest.TestCase):
     wanted = ""
     keys = ""
     sleeptime = 0.00
+    output = None
+
+    skip_on_windows = False
+    skip_on_linux = False
+    skip_on_mac = False
 
     def send(self,s):
         send(s, self.session)
@@ -101,10 +201,29 @@ class _VimTest(unittest.TestCase):
     def _options_off(self):
         pass
 
+    def _skip(self, reason):
+        if hasattr(self, "skipTest"):
+            self.skipTest(reason)
+
     def setUp(self):
+        system = platform.system()
+        if self.skip_on_windows and system == "Windows":
+            return self._skip("Running on windows")
+        if self.skip_on_linux and system == "Linux":
+            return self._skip("Running on Linux")
+        if self.skip_on_mac and system == "Darwin":
+            return self._skip("Running on Darwin/Mac")
+
         self.send(ESC)
 
+        # Close all scratch buffers
+        self.send(":silent! close\n")
+
+        # Reset UltiSnips
         self.send(":py UltiSnips_Manager.reset(test_error=True)\n")
+
+        # Make it unlikely that we do not parse any shipped snippets
+        self.send(":let g:UltiSnipsSnippetDirectories=['<un_def_ined>']\n")
 
         # Clear the buffer
         self.send("bggVGd")
@@ -217,15 +336,73 @@ class MultilineExpandTestTyping_ExceptCorrectResult(_VimTest):
     wanted = "Wie Hallo Welt!\nUnd Wie gehtsHuiui! gehts"
     keys = "Wie hallo gehts" + ESC + "bhi" + EX + "Huiui!"
 
-class MultilineExpandWithFormatoptionsOn_ExceptCorrectResult(_VimTest):
-    snippets = ("test", "${1:longer expand}\n$0")
-    keys = "test" + EX + "This is a longer text that should wrap"
-    wanted = "This is a longer\ntext that should\nwrap\n"
+########################
+# Format options tests #
+########################
+class _FormatoptionsBase(_VimTest):
     def _options_on(self):
         self.send(":set tw=20\n")
     def _options_off(self):
         self.send(":set tw=0\n")
 
+class FOSimple_WithoutBreak_ExceptCorrectResult(_FormatoptionsBase):
+    snippets = ("test", "${1:longer expand}\n$0")
+    keys = "test" + EX + "This is a longer text that should not wrap as formatoptions are disabled"
+    wanted = "This is a longer text that should not wrap as formatoptions are disabled\n"
+
+class FO_WithoutBreakEnableAfterSnippet_ExceptCorrectResult(_FormatoptionsBase):
+    snippets = ("test", "${1:longer expand}\n")
+    keys = "test" + EX + "This is a longer text that should not wrap as formatoptions are disabled" \
+            + JF + "This is a longer text that should wrap"
+    wanted = "This is a longer text that should not wrap as formatoptions are disabled\n" + \
+            "This is a longer\ntext that should\nwrap"
+
+
+class FOSimple_WithBreak_ExceptCorrectResult(_FormatoptionsBase):
+    snippets = ("test", "${1:longer expand}\n$0", "", "f")
+    keys = "test" + EX + "This is a longer text that should wrap"
+    wanted = "This is a longer\ntext that should\nwrap\n"
+
+class FOTextBeforeAndAfter_ExceptCorrectResult(_FormatoptionsBase):
+    snippets = ("test", "Before${1:longer expand}After\nstart$1end", "", "f")
+    keys = "test" + EX + "This is a longer text that should wrap"
+    wanted = \
+"""BeforeThis is a
+longer text that
+should wrapAfter
+startThis is a
+longer text that
+should wrapend"""
+
+
+class FOTextAfter_ExceptCorrectResult(_FormatoptionsBase):
+    """Testcase for lp:719998"""
+    snippets = ("test", "${1:longer expand}after\nstart$1end", "", "f")
+    keys = ("test" + EX + "This is a longer snippet that should wrap properly "
+            "and the mirror below should work as well")
+    wanted = \
+"""This is a longer
+snippet that should
+wrap properly and
+the mirror below
+should work as wellafter
+startThis is a longer
+snippet that should
+wrap properly and
+the mirror below
+should work as wellend"""
+
+class FOWrapOnLongWord_ExceptCorrectResult(_FormatoptionsBase):
+    """Testcase for lp:719998"""
+    snippets = ("test", "${1:longer expand}after\nstart$1end", "", "f")
+    keys = ("test" + EX + "This is a longersnippet that should wrap properly")
+    wanted = \
+"""This is a
+longersnippet that
+should wrap properlyafter
+startThis is a
+longersnippet that
+should wrap properlyend"""
 
 ############
 # TabStops #
@@ -266,6 +443,23 @@ class TabStop_EscapingCharsDollars(_VimTest):
     snippets = ("test", r"snip \$0 $$0 end")
     keys = "test" + EX + "hi"
     wanted = "snip $0 $hi end"
+class TabStop_EscapingChars_Backslash(_VimTest):
+    snippets = ("test", r"This \ is a backslash!")
+    keys = "test" + EX
+    wanted = "This \\ is a backslash!"
+class TabStop_EscapingChars_Backslash2(_VimTest):
+    snippets = ("test", r"This is a backslash \\ done")
+    keys = "test" + EX
+    wanted = r"This is a backslash \ done"
+class TabStop_EscapingChars_Backslash3(_VimTest):
+    snippets = ("test", r"These are two backslashes \\\\ done")
+    keys = "test" + EX
+    wanted = r"These are two backslashes \\ done"
+class TabStop_EscapingChars_Backslash4(_VimTest):
+    # Test for bug 746446
+    snippets = ("test", r"\\$1{$2}")
+    keys = "test" + EX + "hello" + JF + "world"
+    wanted = r"\hello{world}"
 class TabStop_EscapingChars_RealLife(_VimTest):
     snippets = ("test", r"usage: \`basename \$0\` ${1:args}")
     keys = "test" + EX + "[ -u -v -d ]"
@@ -428,32 +622,39 @@ class TabStop_Multiline_DelFirstOverwriteSecond_Overwrite(_VimTest):
 # ShellCode Interpolation #
 ###########################
 class TabStop_Shell_SimpleExample(_VimTest):
+    skip_on_windows = True
     snippets = ("test", "hi `echo hallo` you!")
     keys = "test" + EX + "and more"
     wanted = "hi hallo you!and more"
 class TabStop_Shell_TextInNextLine(_VimTest):
+    skip_on_windows = True
     snippets = ("test", "hi `echo hallo`\nWeiter")
     keys = "test" + EX + "and more"
     wanted = "hi hallo\nWeiterand more"
 class TabStop_Shell_InDefValue_Leave(_VimTest):
+    skip_on_windows = True
     sleeptime = 0.09 # Do this very slowly
     snippets = ("test", "Hallo ${1:now `echo fromecho`} end")
     keys = "test" + EX + JF + "and more"
     wanted = "Hallo now fromecho endand more"
 class TabStop_Shell_InDefValue_Overwrite(_VimTest):
+    skip_on_windows = True
     snippets = ("test", "Hallo ${1:now `echo fromecho`} end")
     keys = "test" + EX + "overwrite" + JF + "and more"
     wanted = "Hallo overwrite endand more"
 class TabStop_Shell_TestEscapedChars_Overwrite(_VimTest):
+    skip_on_windows = True
     snippets = ("test", r"""`echo \`echo "\\$hi"\``""")
     keys = "test" + EX
     wanted = "$hi"
 class TabStop_Shell_TestEscapedCharsAndShellVars_Overwrite(_VimTest):
+    skip_on_windows = True
     snippets = ("test", r"""`hi="blah"; echo \`echo "$hi"\``""")
     keys = "test" + EX
     wanted = "blah"
 
 class TabStop_Shell_ShebangPython(_VimTest):
+    skip_on_windows = True
     sleeptime = 0.09 # Do this very slowly
     snippets = ("test", """Hallo ${1:now `#!/usr/bin/env python
 print "Hallo Welt"
@@ -470,7 +671,7 @@ class PythonCodeOld_SimpleExample(_VimTest):
     snippets = ("test", """hi `!p res = "Hallo"` End""")
     keys = "test" + EX
     wanted = "hi Hallo End"
-class PythonCodeOld_ReferencePlaceholder(_VimTest):
+class PythonCodeOld_ReferencePlaceholderAfter(_VimTest):
     snippets = ("test", """${1:hi} `!p res = t[1]+".blah"` End""")
     keys = "test" + EX + "ho"
     wanted = "ho ho.blah End"
@@ -505,6 +706,12 @@ class PythonCode_SimpleExample(_VimTest):
     snippets = ("test", """hi `!p snip.rv = "Hallo"` End""")
     keys = "test" + EX
     wanted = "hi Hallo End"
+
+
+class PythonCode_SimpleExample_ReturnValueIsEmptyString(_VimTest):
+    snippets = ("test", """hi`!p snip.rv = ""`End""")
+    keys = "test" + EX
+    wanted = "hiEnd"
 
 class PythonCode_ReferencePlaceholder(_VimTest):
     snippets = ("test", """${1:hi} `!p snip.rv = t[1]+".blah"` End""")
@@ -740,6 +947,14 @@ class PythonCode_OptNoExists(_VimTest):
     keys = """test""" + EX
     wanted = """hi no End"""
 
+class PythonCode_IndentProblem(_VimTest):
+    # A test case which is likely related to bug 719649
+    snippets = ("test", r"""hi `!p
+snip.rv = "World"
+` End""")
+    keys = " " * 8 + "test" + EX  # < 8 works.
+    wanted = """        hi World End"""
+
 # locals
 class PythonCode_Locals(_VimTest):
     snippets = ("test", r"""hi `!p a = "test"
@@ -777,6 +992,13 @@ class RecTabStopsWithExpandtab_SimpleExample_ECR(_ExpandTabs):
     wanted = "   Blaahblah \t\t  "
 
 class RecTabStopsWithExpandtab_SpecialIndentProblem_ECR(_ExpandTabs):
+    # Windows indents the Something line after pressing return, though it
+    # shouldn't because it contains a manual indent. All other vim versions do
+    # not do this. Windows vim does not interpret the changes made by :py as
+    # changes made 'manually', while the other vim version seem to do so. Since
+    # the fault is not with UltiSnips, we simply skip this test on windows
+    # completely.
+    skip_on_windows = True
     snippets = (
         ("m1", "Something"),
         ("m", "\t$0"),
@@ -1103,7 +1325,7 @@ class TabstopWithMirrorInDefaultOverwrite_ExceptCorrectResult(_VimTest):
 class MirrorRealLifeExample_ExceptCorrectResult(_VimTest):
     snippets = (
         ("for", "for(size_t ${2:i} = 0; $2 < ${1:count}; ${3:++$2})" \
-         "\n{\n" + EX + "${0:/* code */}\n}"),
+         "\n{\n\t${0:/* code */}\n}"),
     )
     keys ="for" + EX + "100" + JF + "avar\b\b\b\ba_variable" + JF + \
             "a_variable *= 2" + JF + "// do nothing"
@@ -1413,8 +1635,8 @@ class SnippetOptions_ExpandInwordSnippetsWithOtherChars_Expand2(_VimTest):
     wanted = "-Expand me!"
 class SnippetOptions_ExpandInwordSnippetsWithOtherChars_Expand3(_VimTest):
     snippets = (("test", "Expand me!", "", "i"), )
-    keys = "ätest" + EX
-    wanted = "äExpand me!"
+    keys = u"ßßtest" + EX
+    wanted = "ßßExpand me!"
 
 class _SnippetOptions_ExpandWordSnippets(_VimTest):
     snippets = (("test", "Expand me!", "", "w"), )
@@ -1567,7 +1789,6 @@ class SnippetOptions_Regex_SameLine_Simple(_VimTest):
     keys = "abc test test" + EX
     wanted = "abc test Expand me!"
 
-
 #######################
 # MULTI-WORD SNIPPETS #
 #######################
@@ -1636,6 +1857,44 @@ class MultiWord_SnippetOptions_ExpandWordSnippets_ExpandSuffix(
     _MultiWord_SnippetOptions_ExpandWordSnippets):
     keys = "a-test it" + EX
     wanted = "a-Expand me!"
+
+# Test for Bug #774917
+def _snip_quote(qt):
+    return (
+            ("te" + qt + "st", "Expand me" + qt + "!", "test: "+qt),
+            ("te", "Bad", ""),
+            )
+
+class Snippet_With_SingleQuote(_VimTest):
+    snippets = _snip_quote("'")
+    keys = "te'st" + EX
+    wanted = "Expand me'!"
+
+class Snippet_With_SingleQuote_List(_VimTest):
+    snippets = _snip_quote("'")
+    keys = "te" + LS + "2\n"
+    wanted = "Expand me'!"
+
+class Snippet_With_DoubleQuote(_VimTest):
+    snippets = _snip_quote('"')
+    keys = 'te"st' + EX
+    wanted = "Expand me\"!"
+
+class Snippet_With_DoubleQuote_List(_VimTest):
+    snippets = _snip_quote('"')
+    keys = "te" + LS + "2\n"
+    wanted = "Expand me\"!"
+
+# Test for Bug #774917
+class Backspace_TabStop_Zero(_VimTest):
+    snippets = ("test", "A${1:C} ${0:DDD}", "This is Case 1")
+    keys = "test" + EX + "A" + JF + BS + "BBB"
+    wanted = "AA BBB"
+
+class Backspace_TabStop_NotZero(_VimTest):
+    snippets = ("test", "A${1:C} ${2:DDD}", "This is Case 1")
+    keys = "test" + EX + "A" + JF + BS + "BBB"
+    wanted = "AA BBB"
 
 ######################
 # SELECTING MULTIPLE #
@@ -1707,12 +1966,12 @@ class _ListAllSnippets(_VimTest):
 
 class ListAllAvailable_NothingTyped_ExceptCorrectResult(_ListAllSnippets):
     keys = "" + LS + "3\n"
-    wanted = "OHEEEE"
+    wanted = "BLAAH"
 class ListAllAvailable_testtyped_ExceptCorrectResult(_ListAllSnippets):
-    keys = "hallo test" + LS + "1\n"
+    keys = "hallo test" + LS + "2\n"
     wanted = "hallo BLAAH"
 class ListAllAvailable_testtypedSecondOpt_ExceptCorrectResult(_ListAllSnippets):
-    keys = "hallo test" + LS + "2\n"
+    keys = "hallo test" + LS + "1\n"
     wanted = "hallo TEST ONE"
 
 class ListAllAvailable_NonDefined_NoExceptionShouldBeRaised(_ListAllSnippets):
@@ -1730,8 +1989,7 @@ class _AnonBase(_VimTest):
         self.send(":inoremap <silent> " + EA + ' <C-R>=UltiSnips_Anon('
                 + self.args + ')<cr>\n')
     def _options_off(self):
-        self.send(":iunmap <silent> " + EA + ' <C-R>=UltiSnips_Anon('
-                + self.args + ')<cr>\n')
+        self.send(":iunmap <silent> " + EA + '\n')
 
 class Anon_NoTrigger_Simple(_AnonBase):
     args = '"simple expand"'
@@ -1789,7 +2047,13 @@ class AddFunc_Opt(_AddFuncBase):
 # SNIPPETS FILE PARSING #
 #########################
 
-class ParseSnippets_SimpleSnippet(_VimTest):
+class _PS_Base(_VimTest):
+    def _options_on(self):
+        self.send(":let UltiSnipsDoHash=0\n")
+    def _options_off(self):
+        self.send(":unlet UltiSnipsDoHash\n")
+
+class ParseSnippets_SimpleSnippet(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet testsnip "Test Snippet" b!
         This is a test snippet!
@@ -1798,7 +2062,7 @@ class ParseSnippets_SimpleSnippet(_VimTest):
     keys = "testsnip" + EX
     wanted = "This is a test snippet!"
 
-class ParseSnippets_MissingEndSnippet(_VimTest):
+class ParseSnippets_MissingEndSnippet(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet testsnip "Test Snippet" b!
         This is a test snippet!
@@ -1809,7 +2073,7 @@ class ParseSnippets_MissingEndSnippet(_VimTest):
         UltiSnips: Missing 'endsnippet' for 'testsnip' in test_file(5)
         """).strip()
 
-class ParseSnippets_UnknownDirective(_VimTest):
+class ParseSnippets_UnknownDirective(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         unknown directive
         """)
@@ -1819,7 +2083,7 @@ class ParseSnippets_UnknownDirective(_VimTest):
         UltiSnips: Invalid line 'unknown directive' in test_file(2)
         """).strip()
 
-class ParseSnippets_ExtendsWithoutFiletype(_VimTest):
+class ParseSnippets_ExtendsWithoutFiletype(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         extends
         """)
@@ -1829,7 +2093,7 @@ class ParseSnippets_ExtendsWithoutFiletype(_VimTest):
         UltiSnips: 'extends' without file types in test_file(2)
         """).strip()
 
-class ParseSnippets_ClearAll(_VimTest):
+class ParseSnippets_ClearAll(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet testsnip "Test snippet"
         This is a test.
@@ -1840,7 +2104,7 @@ class ParseSnippets_ClearAll(_VimTest):
     keys = "testsnip" + EX
     wanted = "testsnip" + EX
 
-class ParseSnippets_ClearOne(_VimTest):
+class ParseSnippets_ClearOne(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet testsnip "Test snippet"
         This is a test.
@@ -1855,7 +2119,7 @@ class ParseSnippets_ClearOne(_VimTest):
     keys = "toclear" + EX + "\n" + "testsnip" + EX
     wanted = "toclear" + EX + "\n" + "This is a test."
 
-class ParseSnippets_ClearTwo(_VimTest):
+class ParseSnippets_ClearTwo(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet testsnip "Test snippet"
         This is a test.
@@ -1871,7 +2135,7 @@ class ParseSnippets_ClearTwo(_VimTest):
     wanted = "toclear" + EX + "\n" + "testsnip" + EX
 
 
-class _ParseSnippets_MultiWord(_VimTest):
+class _ParseSnippets_MultiWord(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet /test snip/
         This is a test.
@@ -1895,7 +2159,7 @@ class ParseSnippets_MultiWord_Description_Option(_ParseSnippets_MultiWord):
     keys = "snippet test" + EX
     wanted = "This is yet another test."
 
-class _ParseSnippets_MultiWord_RE(_VimTest):
+class _ParseSnippets_MultiWord_RE(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet /[d-f]+/ "" r
         az test
@@ -1919,7 +2183,7 @@ class ParseSnippets_MultiWord_RE3(_ParseSnippets_MultiWord_RE):
     keys = "test test test" + EX
     wanted = "re-test"
 
-class ParseSnippets_MultiWord_Quotes(_VimTest):
+class ParseSnippets_MultiWord_Quotes(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet "test snip"
         This is a test.
@@ -1927,7 +2191,7 @@ class ParseSnippets_MultiWord_Quotes(_VimTest):
         """)
     keys = "test snip" + EX
     wanted = "This is a test."
-class ParseSnippets_MultiWord_WithQuotes(_VimTest):
+class ParseSnippets_MultiWord_WithQuotes(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet !"test snip"!
         This is a test.
@@ -1936,7 +2200,7 @@ class ParseSnippets_MultiWord_WithQuotes(_VimTest):
     keys = '"test snip"' + EX
     wanted = "This is a test."
 
-class ParseSnippets_MultiWord_NoContainer(_VimTest):
+class ParseSnippets_MultiWord_NoContainer(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet test snip
         This is a test.
@@ -1948,7 +2212,7 @@ class ParseSnippets_MultiWord_NoContainer(_VimTest):
         UltiSnips: Invalid multiword trigger: 'test snip' in test_file(2)
         """).strip()
 
-class ParseSnippets_MultiWord_UnmatchedContainer(_VimTest):
+class ParseSnippets_MultiWord_UnmatchedContainer(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         snippet !inv snip/
         This is a test.
@@ -1960,7 +2224,7 @@ class ParseSnippets_MultiWord_UnmatchedContainer(_VimTest):
         UltiSnips: Invalid multiword trigger: '!inv snip/' in test_file(2)
         """).strip()
 
-class ParseSnippets_Global_Python(_VimTest):
+class ParseSnippets_Global_Python(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
         global !p
         def tex(ins):
@@ -1978,7 +2242,7 @@ class ParseSnippets_Global_Python(_VimTest):
     keys = "ab" + EX + "\nac" + EX
     wanted = "x a bob b y\nx a jon b y"
 
-class ParseSnippets_Global_Local_Python(_VimTest):
+class ParseSnippets_Global_Local_Python(_PS_Base):
     snippets_test_file = ("all", "test_file", r"""
 global !p
 def tex(ins):
@@ -2241,8 +2505,17 @@ if __name__ == '__main__':
     test_loader = unittest.TestLoader()
     all_test_suites = test_loader.loadTestsFromModule(__import__("test"))
 
+    focus()
+
     # Ensure we are not running in VI-compatible mode.
     send(""":set nocompatible\n""", options.session)
+
+    # Do not mess with the X clipboard
+    send(""":set clipboard=""\n""", options.session)
+
+    # Set encoding and fileencodings
+    send(""":set encoding=utf-8\n""", options.session)
+    send(""":set fileencoding=utf-8\n""", options.session)
 
     # Ensure runtimepath includes only Vim's own runtime files
     # and those of the UltiSnips directory under test ('.').
@@ -2256,6 +2529,7 @@ if __name__ == '__main__':
 
     # Now, source our runtime
     send(":so plugin/UltiSnips.vim\n", options.session)
+    time.sleep(2) # Parsing and initializing UltiSnips takes a while.
 
     # Inform all test case which screen session to use
     suite = unittest.TestSuite()
@@ -2276,3 +2550,4 @@ if __name__ == '__main__':
         v = 1
     res = unittest.TextTestRunner(verbosity=v).run(suite)
 
+# vim:fileencoding=utf-8:

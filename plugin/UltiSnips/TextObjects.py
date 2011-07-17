@@ -110,19 +110,19 @@ class _CleverReplace(object):
 
 class _TOParser(object):
     # A simple tabstop with default value
-    _TABSTOP = re.compile(r'''(?<!\\)\${(\d+)[:}]''')
+    _TABSTOP = re.compile(r'''(?<![^\\]\\)\${(\d+)[:}]''')
     # A mirror or a tabstop without default value.
-    _MIRROR_OR_TS = re.compile(r'(?<!\\)\$(\d+)')
+    _MIRROR_OR_TS = re.compile(r'(?<![^\\]\\)\$(\d+)')
     # A mirror or a tabstop without default value.
-    _TRANSFORMATION = re.compile(r'(?<!\\)\${(\d+)/(.*?)/(.*?)/([a-zA-z]*)}')
+    _TRANSFORMATION = re.compile(r'(?<![^\\]\\)\${(\d+)/(.*?)/(.*?)/([a-zA-z]*)}')
     # The beginning of a shell code fragment
-    _SHELLCODE = re.compile(r'(?<!\\)`')
+    _SHELLCODE = re.compile(r'(?<![^\\]\\)`')
     # The beginning of a python code fragment
-    _PYTHONCODE = re.compile(r'(?<!\\)`!p')
+    _PYTHONCODE = re.compile(r'(?<![^\\]\\)`!p')
     # The beginning of a vimL code fragment
-    _VIMCODE = re.compile(r'(?<!\\)`!v')
+    _VIMCODE = re.compile(r'(?<![^\\]\\)`!v')
     # Escaped characters in substrings
-    _UNESCAPE = re.compile(r'\\[`$]')
+    _UNESCAPE = re.compile(r'\\[`$\\]')
 
     def __init__(self, parent, val, indent):
         self._v = val
@@ -860,7 +860,7 @@ class PythonCode(TextObject):
 
         self._globals = {}
         globals = snippet.globals.get("!p", [])
-        exec "\n".join(globals) in self._globals
+        exec "\n".join(globals).replace("\r\n", "\n") in self._globals
 
         # Add Some convenience to the code
         self._code = "import re, os, vim, string, random\n" + code
@@ -887,6 +887,7 @@ class PythonCode(TextObject):
             'snip' : self._snip,
         })
 
+        self._code = self._code.replace("\r\n", "\n")
         exec self._code in self._globals, local_d
 
         if self._snip._rv_changed:
