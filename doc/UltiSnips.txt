@@ -162,11 +162,14 @@ which defaults to: >
    g:UltiSnipsSnippetDirectories          ["UltiSnips"] 
 
 Snippet definition files are searched in 'runtimepath', but the 'runtimepath'
-variable is traversed in reversed order (last item first). In each directory,
-UltiSnips will search for the folder names in the order they appear in
-g:UltiSnipsSnippetDirectories. If you keep your snippets in a folder called
-"mycoolsnippets" in your .vim directory and you want the snippets that ship
-with UltiSnips to be available as well, use >
+variable is traversed in reversed order (last item first). If you would like
+to have UltiSnips traverse this in proper order, add these to your vimrc: >
+   let g:UltiSnipsDontReverseSearchPath="1"
+
+In each directory, UltiSnips will search for the folder names in the order
+they appear in g:UltiSnipsSnippetDirectories. If you keep your snippets in a
+folder called "mycoolsnippets" in your .vim directory and you want the
+snippets that ship with UltiSnips to be available as well, use >
    let g:UltiSnipsSnippetDirectories=["UltiSnips", "mycoolsnippets"]
 If you do not want the shipped snippets to be available, only use
 "mycoolsnippets".
@@ -229,6 +232,16 @@ the snippet, and 3) the options. All of the optional arguments are the same as
 the |UltiSnips_AddSnippet| function. The description is unused right now,
 whereas the trigger and options can change the way the snippet expands.
 
+This feature is frequently used in .vimrc. A typical use case from my
+restructured text file looks like this:
+
+   inoremap <silent> $$ $$<C-R>=UltiSnips_Anon(':latex:\`$1\`', '$$')<cr>
+
+This expands the snippet whenever I type two $ signs. Note that In the right
+hand site of the mapping, I retype the '$$' trigger and also inform UltiSnips
+about the trigger; if I do not do this or give an empty trigger, vim will
+trick UltiSnips by unreliably claiming that there is already one or zero '$'
+signs before the snippet is expanded.
 
 =============================================================================
 4. SYNTAX                                                  *UltiSnips-syntax*
@@ -752,6 +765,8 @@ Contributers are listed in chronological order:
    guns - Sung Pae
    shlomif - Shlomi Fish
    pberndt - Phillip Berndt
+   thanatermesis-elive - Thanatermesis
+   rico-ambiescent - Rico Sta. Cruz
 
 7.2 Snippets                                       *UltiSnips-contrisnippets*
 ------------
@@ -763,6 +778,8 @@ Contributers are listed in chronological order:
    Ches Martin
    Gordin (g0rdin)
    Jan Mollowitz (phux)
+   Georgi Valkov (gvalkov)
+   Miek Gieben (miek)
 
 
 

@@ -504,7 +504,8 @@ class VimState(object):
         vim.current.window.cursor = lineno + 1, col
 
         if delta.line == delta.col == 0:
-            if col == 0 or vim.eval("mode()") != 'i':
+            if col == 0 or vim.eval("mode()") != 'i' and \
+                    col < len(vim.current.buffer[lineno]):
                 feedkeys(r"\<Esc>i")
             else:
                 feedkeys(r"\<Esc>a")
@@ -719,7 +720,7 @@ class SnippetManager(object):
         before, after = self._get_before_after()
         snip = Snippet(trigger, value, descr, options, globals)
 
-        if snip.matches(before):
+        if not trigger or snip.matches(before):
             self._do_snippet(snip, before, after)
             return True
         else:
@@ -1142,7 +1143,13 @@ class SnippetManager(object):
         base_snippets = os.path.realpath(os.path.join(__file__, "../../../UltiSnips"))
         ret = []
 
-        for rtp in vim.eval("&runtimepath").split(',')[::-1]:
+        paths = vim.eval("&runtimepath").split(',')
+
+        if vim.eval("exists('g:UltiSnipsDontReverseSearchPath')") == "0" or \
+           vim.eval("g:UltiSnipsDontReverseSearchPath") == "0":
+            paths = paths[::-1]
+
+        for rtp in paths:
             for snippet_dir in snippet_dirs:
                 pth = os.path.realpath(os.path.join(rtp, snippet_dir))
 
