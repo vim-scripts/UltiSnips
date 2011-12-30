@@ -2,6 +2,9 @@ This is a mirror of http://www.vim.org/scripts/script.php?script_id=2715
 
 UltiSnips is the Ultimate solution for snippets under Vim. Snippets are intelligent texts that spare you a lot of typing. Like many snippets solutions, this one ins heavily inspired by TextMates Snippet Syntax and offers all features that TextMate offers plus some more. But in Vim.
 
+Screencasts:
+http://www.sirver.net/blog/2011/12/30/first-episode-of-ultisnips-screencast/
+
 UltiSnips has the following features (incomplete list):
 
 - TextMates snippet syntax
