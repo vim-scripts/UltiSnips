@@ -4,9 +4,6 @@ UltiSnips                                      *snippet* *snippets* *UltiSnips*
 
 1. Description                                  |UltiSnips-description|
 2. Installation and Updating                    |UltiSnips-installnupgrade|
-   2.1 Installation                             |UltiSnips-installation|
-   2.2 Deinstallation                           |UltiSnips-deinstallation|
-   2.3 Updating                                 |UltiSnips-updating|
 3. Settings & Commands                          |UltiSnips-settings|
    3.1 Commands                                 |UltiSnips-commands|
    3.2 Triggers                                 |UltiSnips-triggers|
@@ -19,12 +16,13 @@ UltiSnips                                      *snippet* *snippets* *UltiSnips*
    4.1 Adding Snippets                          |UltiSnips-adding-snippets|
       4.1.1 Character Escaping                  |UltiSnips-character-escaping|
    4.2 Plaintext Snippets                       |UltiSnips-plaintext-snippets|
-   4.3 Interpolation                            |UltiSnips-interpolation|
-      4.3.1 Shellcode                           |UltiSnips-shellcode|
-      4.3.2 VimScript                           |UltiSnips-vimscript|
-      4.3.3 Python                              |UltiSnips-python|
-      4.3.4 Global Snippets                     |UltiSnips-globals|
-   4.4 Tab Stops and Placeholders               |UltiSnips-tabstops|
+   4.3 Visual Placeholder                       |UltiSnips-visual-placeholder|
+   4.4 Interpolation                            |UltiSnips-interpolation|
+      4.4.1 Shellcode                           |UltiSnips-shellcode|
+      4.4.2 VimScript                           |UltiSnips-vimscript|
+      4.4.3 Python                              |UltiSnips-python|
+      4.4.4 Global Snippets                     |UltiSnips-globals|
+   4.5 Tab Stops and Placeholders               |UltiSnips-tabstops|
    4.6 Mirrors                                  |UltiSnips-mirrors|
    4.7 Transformations                          |UltiSnips-transformations|
       4.7.1 Replacement String                  |UltiSnips-replacement-string|
@@ -55,34 +53,44 @@ UltiSnips is an implementation that is developed with in the philosophy of TDD
 (Test driven development). This guarantees that features do not disappear and
 bugs do not reappear after they have been fixed once.
 
+You can learn what UltiSnips can do by watching some short screencasts and
+reading the accompanying blog posts on my blog:
+
+http://www.sirver.net/blog/2011/12/30/first-episode-of-ultisnips-screencast/
+http://www.sirver.net/blog/2012/01/08/second-episode-of-ultisnips-screencast/
+
+
  Acknowledgments:                                 *UltiSnips-acknowledgments*
 
 UltiSnips is inspired by the snippets solution implemented in TextMate
 (http://macromates.com/). The idea of implementing snippets for vim is not new
-and I want to thank Michael Sander (Author of snipMate) for some
+and I want to thank Michael Sanders (Author of snipMate) for some
 implementation details I stole from him and for the permission to use some of
 his snippets.
 
 =============================================================================
 2. INSTALLATION AND UPDATING                       *UltiSnips-installnupdate*
 
+To use UltiSnips, you need a python enabled Vim 7. You have python if either
+   :echo has("python") or :echo has("python3") 
+yields '1'. Recent versions have been tested with python 2.7 and python 3.2,
+theoretically, UltiSnips should work with all versions >= python 2.6.
 
-2.1 Installation                                     *UltiSnips-installation*
-----------------
+Using Pathogen:                                     *UltiSnips-using-pathogen*
 
-UltiSnips has only been tested on Mac OS X and Linux. Like TextMates Snippets
-it also relies heavily on shell integration, therefore Windows users will have
-only a part of the functionality.
+If you are a Pathogen user, you can track the official mirror of UltiSnips on github: >
 
-To use UltiSnips, you need a python enabled Vim 7. You have python if
-   :echo has("python")
-yields '1'.
+   $ cd ~/.vim/
+   $ git submodule add https://github.com/sirver/ultisnips bundle/ultisnips
 
-If you have Python, you only need to install UltiSnips. The recommended way to
-do so is by using bzr (http://bazaar-vcs.org/). It is in all major linux
-distribution (either package bzr or bazaar) and can be easily installed under
-Mac OS X: >
-   $ easy_install bzr
+See the pathogen documentation how to update a bundle.
+
+Using Bzr:                                               *UltiSnips-using-bzr*
+
+To track the main repository on github, you will need bzr
+(http://bazaar-vcs.org/). It is in all major linux distribution (either
+package bzr or bazaar) and can be easily installed under Mac OS X: >
+   $ pip install bzr
 
 To get UltiSnips, check it out into a directory of your choice. Then add this
 directory to your Vim runtime path: >
@@ -97,23 +105,14 @@ Restart vim. UltiSnips should work now. To access the help, use >
    :helptags ~/.vim/ultisnips_rep/doc
    :help UltiSnips
 
-2.2 Deinstallation                                 *UltiSnips-deinstallation*
-------------------
-
-To Uninstall UltiSnips, remove the directory you installed it to and remove
-the path from your vim runtimepath: >
-   $ rm -rf ~/.vim/ultisnips_rep
-   $ vim ~/.vimrc
-
-remove the line: >
-   set runtimepath+=~/.vim/ultisnips_rep
-
-2.3 Updating                                             *UltiSnips-updating*
-------------
-
 To Update an installation, simply pull the latest revision: >
    $ cd ~/.vim/ultisnips_rep
    $ bzr pull
+
+Using a downloaded packet:               *UltiSnips-using-a-downloaded-packet*
+
+See UltiSnips-using-bzr. Just unpack into a directory of your choice and add
+the path to runtimepath.
 
 =============================================================================
 3. SETTINGS                                              *UltiSnips-settings*
@@ -255,16 +254,20 @@ provide many examples to make things clearer.
 See |UltiSnips-snippet-search-path| for an explanation of where directories
 with snippet definitions are expected.
 
-While iterating over the snippet definition directories found, files are
-looked for called ft.snippets or *_ft.snippets where "ft" is the current
-'filetype', and the "*" matches anything, for example: >
+UltiSnips follows the same search pattern that Vim itself uses when searching
+for ftplugins: While iterating over the snippet definition directories found,
+files are listed with the following glob patterns: ft.snippets, ft_*.snippets,
+ft/*. ft is the current 'filetype', and the "*" matches anything, for example:
    ruby.snippets
    c.snippets
-   my_c.snippets
+   c_mine.snippets
+   c/a
+   c/b.snippets
    perl.snippets
-These files contain the snippet definitions for the various file types. A
-special file is >
+Those files are than traversed in order to gather snippet definitions for the
+various file types. A special filetype is all, e.g.  >
    all.snippets
+   all/a.snippets
 which contains snippets that are always expanded, no matter what file type is
 defined. For example, I keep mail signatures and date insertion snippets here.
 
@@ -277,7 +280,7 @@ As an alternative, a snippet file may contain a line that looks like this: >
    extends ft1, ft2, ft3
 For example, the first line in cpp.snippets looks like this: >
    extends c
-This means, first check all triggers for c, then add the triggers from this
+This means, first search all snippets for c, then add the snippets from this
 file. This is a convenient way to add more special cases to more general ones.
 Multiple "extends" lines are permitted throughout the snippets file.
 
@@ -330,11 +333,6 @@ snippet on. The options currently supported are >
        option is set, UltiSnips will not try to do this expansion, and will
        leave the tabs alone. This can be useful for snippets dealing with
        tab delimited formats, etc.
-   f   Do not turn 'formatoptions' off when expanding the snippet. Normally,
-       UltiSnips will disable the 'c' and the 't' option of 'formatoptions'
-       because otherwise, Vim might break a line without UltiSnips noticing
-       and this might mess up the snippet completely. This is useful for
-       snippets that need paragraphs in their tabstops.
 <
 
  4.1.1 Character Escaping:                             *UltiSnips-character-escaping*
@@ -362,10 +360,35 @@ bye<tab> -->
 Good bye, Sir. Hope to talk to you soon.
 - Arthur, King of Britain
 
-4.3 Interpolation                                   *UltiSnips-interpolation*
+4.3 Visual Placeholder                         *UltiSnips-visual-placeholder*
+----------------------
+
+Snippets can contain a special placeholder called ${VISUAL}. When you select
+some text in visual mode and press the key to expand a trigger
+(see g:UltiSnipsExpandTrigger) the selected text will get deleted and you will
+drop to insert mode. The next snippet you expand will have the selected text
+in the place of the ${VISUAL}. The place holder can also contain default text
+when there is no visual text to be selected: ${VISUAL:default text}.
+As a small example, let's take this snippet:
+
+------------------- SNIP -------------------
+snippet t
+<tag>${VISUAL:inside text}</tag>
+endsnippet
+------------------- SNAP -------------------
+And starting with this line: >
+   this should be cool
+position the cursor on the should, then press viw (visual mode -> select inner
+word). Then press tab, type "t" and press tab again >
+   -> this <tag>should</tag> be cool
+If you expand this snippet without having been in visual mode before, e.g. by
+writing in insert mode t<tab>, you will get >
+   <tag>inside text</tag>
+
+4.4 Interpolation                                   *UltiSnips-interpolation*
 -----------------
 
- 4.3.1 Shellcode:                                         *UltiSnips-shellcode*
+ 4.4.1 Shellcode:                                         *UltiSnips-shellcode*
 
 You can enter shellcode in your snippets in nearly all places. Shell code is
 written to a script and then executed. The output is inserted into the snippet
@@ -392,7 +415,7 @@ endsnippet
 today<tab> ->
 Today is 15.6.2009.
 
- 4.3.2 VimScript:                                         *UltiSnips-vimscript*
+ 4.4.2 VimScript:                                         *UltiSnips-vimscript*
 
 You can also use VimScript (also sometimes called VimL) in interpolation. This
 works very much the same as interpolation of shellcode, expect that it must be
@@ -407,7 +430,7 @@ endsnippet
     (note the 4 spaces in front): indent<tab> ->
     (note the 4 spaces in front): Indent is: 4.
 
- 4.3.3 Python:                                               *UltiSnips-python*
+ 4.4.3 Python:                                               *UltiSnips-python*
 
 By far the most powerful interpolation is by using python code. The syntax is
 similar to the one for Vimscript, but in python code the value of the property
@@ -486,7 +509,7 @@ endsnippet
 wow<tab>Hello World ->
 Hello World                                                     HELLO WORLD
 
- 4.3.4 Global Snippets:                                   *UltiSnips-globals*
+ 4.4.4 Global Snippets:                                   *UltiSnips-globals*
 
 Global snippets provide a way to take common code out of snippets. Currently,
 only python code is supported. The result of executing the contents of the
@@ -508,8 +531,21 @@ endsnippet
 wow<tab>Hello World ->
 Hello World                                                     HELLO WORLD
 
+Sometimes you want to have helper functions that are available in all your
+snippet files. This is easily achieved using a global snippet and a python
+module. First, add a search path to your python path by adding something along
+this line to your vimrc: >
 
-4.4 Tab Stops and Placeholders  *UltiSnips-tabstops* *UltiSnips-placeholders*
+   py import sys; sys.path.append("/home/sirver/.vim/python")
+
+Now use a global snippet in your snippet file to import modules from this
+directory: >
+
+   global !p
+   from my_snippet_helpers import *
+   endglobals
+
+4.5 Tab Stops and Placeholders  *UltiSnips-tabstops* *UltiSnips-placeholders*
 ------------------------------
 
 Very often, it is convenient to quickly add some text snippet and jump on to
@@ -783,6 +819,7 @@ Contributers are listed in chronological order:
    thanatermesis-elive - Thanatermesis
    rico-ambiescent - Rico Sta. Cruz
    Cody Frazer 
+   suy - Alejandro Exojo
 
 7.2 Snippets                                       *UltiSnips-contrisnippets*
 ------------

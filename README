@@ -3,7 +3,9 @@ This is a mirror of http://www.vim.org/scripts/script.php?script_id=2715
 UltiSnips is the Ultimate solution for snippets under Vim. Snippets are intelligent texts that spare you a lot of typing. Like many snippets solutions, this one ins heavily inspired by TextMates Snippet Syntax and offers all features that TextMate offers plus some more. But in Vim.
 
 Screencasts:
-http://www.sirver.net/blog/2011/12/30/first-episode-of-ultisnips-screencast/
+Intro: http://www.sirver.net/blog/2011/12/30/first-episode-of-ultisnips-screencast/
+Basic Snippets: http://www.sirver.net/blog/2012/01/08/second-episode-of-ultisnips-screencast/
+Version 2.0s new features: http://www.sirver.net/blog/2012/02/05/third-episode-of-ultisnips-screencast/
 
 UltiSnips has the following features (incomplete list):
 
@@ -21,8 +23,9 @@ UltiSnips has the following features (incomplete list):
 - extend existing snippet definitions. For example cpp extends c, so that all c snippets are also available in cpp.
 - options for snippets: expand only at the beginning of line, inword, convert tabs-to-spaces....
 - multi word or regular expression triggers are supported and awesome!
+- edit snippets with normal mode commands and move around in them freely while editing
 - support for anonymous triggers that other scripts can define on the fly e.g. for automatic completion of parameters of your own functions.
-- > 325 unit tests to guarantee that stuff works.
+- > 400 unit tests to guarantee that stuff works.
 - Tested on Linux, Mac OS X and Windows.
 
 There have been many attempts to do things right; I think, this one nails it.

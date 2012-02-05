@@ -14,4 +14,16 @@ Launchpad is superior and already has a significant history. Please report
 
 .. _issues over there: https://bugs.launchpad.net/ultisnips
 
+Screencasts
+-----------
+
+The blog posts of the screencasts contain more advanced examples of the things
+discussed in the video.
+
+* `Episode 1: What are snippets and do I need them?`__
+* `Episode 2: Creating Basic Snippets`__
+
+__ http://www.sirver.net/blog/2011/12/30/first-episode-of-ultisnips-screencast/
+__ http://www.sirver.net/blog/2012/01/08/second-episode-of-ultisnips-screencast/
+
 
