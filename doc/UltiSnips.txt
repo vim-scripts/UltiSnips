@@ -3,7 +3,7 @@
 UltiSnips                                      *snippet* *snippets* *UltiSnips*
 
 1. Description                                  |UltiSnips-description|
-2. Installation and Updating                    |UltiSnips-installnupgrade|
+2. Installation and Updating                    |UltiSnips-installnupdate|
 3. Settings & Commands                          |UltiSnips-settings|
    3.1 Commands                                 |UltiSnips-commands|
    3.2 Triggers                                 |UltiSnips-triggers|
@@ -58,6 +58,7 @@ reading the accompanying blog posts on my blog:
 
 http://www.sirver.net/blog/2011/12/30/first-episode-of-ultisnips-screencast/
 http://www.sirver.net/blog/2012/01/08/second-episode-of-ultisnips-screencast/
+http://www.sirver.net/blog/2012/02/05/third-episode-of-ultisnips-screencast/
 
 
  Acknowledgments:                                 *UltiSnips-acknowledgments*
@@ -72,9 +73,15 @@ his snippets.
 2. INSTALLATION AND UPDATING                       *UltiSnips-installnupdate*
 
 To use UltiSnips, you need a python enabled Vim 7. You have python if either
-   :echo has("python") or :echo has("python3") 
+   :echo has("python") or :echo has("python3")
 yields '1'. Recent versions have been tested with python 2.7 and python 3.2,
 theoretically, UltiSnips should work with all versions >= python 2.6.
+
+UltiSnips tries to autodetect which Vim Python command to use (there are two:
+:py and :py3). Unfortunately, some Vim versions choke when you test for both
+versions. In this case you have to tell UltiSnips which version to use via >
+   
+   let g:UltiSnipsUsePythonVersion = 2   " or 3
 
 Using Pathogen:                                     *UltiSnips-using-pathogen*
 
@@ -158,7 +165,7 @@ your vimrc: >
 UltiSnips lets you override the name of the directories that are searched
 for snippets. You need to set the variable g:UltiSnipsSnippetDirectories,
 which defaults to: >
-   g:UltiSnipsSnippetDirectories          ["UltiSnips"] 
+   g:UltiSnipsSnippetDirectories          ["UltiSnips"]
 
 Snippet definition files are searched in 'runtimepath', but the 'runtimepath'
 variable is traversed in reversed order (last item first). If you would like
@@ -183,7 +190,7 @@ which file type.
 3.4 Warning About Select Mode Mappings          *UltiSnips-warning-smappings*
 --------------------------------------
 
-The help for vim's *mapmode-s* states: >
+The help for vim's |mapmode-s| states: >
    NOTE: Mapping a printable character in Select mode may confuse the user.
    It's better to explicitly use :xmap and :smap for printable characters.  Or
    use :sunmap after defining the mapping.
@@ -191,7 +198,7 @@ The help for vim's *mapmode-s* states: >
 But most vim plugins (even the ones shipped with vim) do not adhere to this.
 As UltiSnips uses select mode to mark tabstops in snippets for overwriting
 these wrong mappings get in the way. UltiSnips therefore defaults to
-*:sunmap* all mappings for printable characters in select mode. It will not
+|:sunmap| all mappings for printable characters in select mode. It will not
 touch any other mappings, especially not normal, insert or visual mode
 mappings.
 
@@ -203,7 +210,7 @@ this feature. For example >
    let g:UltiSnipsMappingsToIgnore = [ "somePlugin", "otherPlugin" ]
 
 will not unmap any mapping that contains the string "somePlugin" or
-"otherPlugin" in its complete definition as listed by *:smap* .
+"otherPlugin" in its complete definition as listed by |:smap|.
 
 
 3.5 Functions                                           *UltiSnips-functions*
@@ -354,7 +361,7 @@ Good bye, Sir. Hope to talk to you soon.
 endsnippet
 ------------------- SNAP -------------------
 
-UltiSnips will pick up that you added/changed this file automatically, so just 
+UltiSnips will pick up that you added/changed this file automatically, so just
 try it in insert mode:
 bye<tab> -->
 Good bye, Sir. Hope to talk to you soon.
@@ -368,19 +375,23 @@ some text in visual mode and press the key to expand a trigger
 (see g:UltiSnipsExpandTrigger) the selected text will get deleted and you will
 drop to insert mode. The next snippet you expand will have the selected text
 in the place of the ${VISUAL}. The place holder can also contain default text
-when there is no visual text to be selected: ${VISUAL:default text}.
-As a small example, let's take this snippet:
+when there is no visual text to be selected: ${VISUAL:default text}. And it
+can also contain transformations on the contents of the visual (See
+|UltiSnips-transformations| ). This will take the form
+${VISUAL:default/search/replace/option}. 
 
+As a small example, let's take this snippet. It will take the visual text,
+replace all "should" via "is" and put it in.
 ------------------- SNIP -------------------
 snippet t
-<tag>${VISUAL:inside text}</tag>
+<tag>${VISUAL:inside text/should/is/g}</tag>
 endsnippet
 ------------------- SNAP -------------------
 And starting with this line: >
    this should be cool
 position the cursor on the should, then press viw (visual mode -> select inner
 word). Then press tab, type "t" and press tab again >
-   -> this <tag>should</tag> be cool
+   -> this <tag>is</tag> be cool
 If you expand this snippet without having been in visual mode before, e.g. by
 writing in insert mode t<tab>, you will get >
    <tag>inside text</tag>
@@ -476,6 +487,11 @@ The snip object provides some properties as well: >
         in it. You can check if snip.c is != "" to make sure that the
         interpolation is only done once. This deprecates the "cur" variable.
 
+   snip.v:
+        information about the content for ${VISUAL}. Has two attributes:
+         snip.v.mode   ('v', 'V', '^V', see *visualmode* )
+         snip.v.text   the text that was selected
+
     snip.fn:
         the current filename.
 
@@ -508,6 +524,37 @@ endsnippet
 ------------------- SNAP -------------------
 wow<tab>Hello World ->
 Hello World                                                     HELLO WORLD
+
+The following snippet is an example of the use of the match in snippets with
+regular expression. It shows how to build snippets whose expansion depends
+on the actual definition of the snippet which can vary:
+
+------------------- SNIP -------------------
+snippet "be(gin)?( (\S+))?" "begin{} / end{}" br
+\begin{${1:`!p
+snip.rv = match.group(3) if match.group(2) is not None else "something"`}}
+	${2:${VISUAL}}
+\end{$1}$0
+endsnippet
+------------------- SNAP -------------------
+be<tab>center<c-j> ->
+\begin{center}
+
+\end{center}
+------------------- SNAP -------------------
+be center<tab> ->
+\begin{center}
+
+\end{center}
+
+The second form is just a variation of the first one but, it serves as an
+illustration of how to match groups in regular expressions but it has some 
+drawbacks:
+1. If you use <tab> for expanding the snippets and also for completion then
+   if you were trying to use <tab> to complete "be form" to "be formatted"
+   then you would end up with the above SNAP which is not what you want.
+2. The snippet is harder to read.
+
 
  4.4.4 Global Snippets:                                   *UltiSnips-globals*
 
@@ -818,8 +865,9 @@ Contributers are listed in chronological order:
    pberndt - Phillip Berndt
    thanatermesis-elive - Thanatermesis
    rico-ambiescent - Rico Sta. Cruz
-   Cody Frazer 
+   Cody Frazer
    suy - Alejandro Exojo
+   grota - Giuseppe Rota
 
 7.2 Snippets                                       *UltiSnips-contrisnippets*
 ------------
@@ -834,6 +882,8 @@ Contributers are listed in chronological order:
    Georgi Valkov (gvalkov)
    Miek Gieben (miek)
    Aldis Berjoza (graudeejs)
+   Jorge (skeept)
+   Martin Grenfell (scrooloose)
 
 vim:tw=78:ts=8:ft=help:norl:
 

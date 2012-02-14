@@ -1162,6 +1162,19 @@ class PythonCode_AccessKilledTabstop_OverwriteFirst(_VimTest):
     keys = "test" + EX + "aaa"
     wanted = "aaa"
 
+class PythonVisual_NoVisualSelection_Ignore(_VimTest):
+    snippets = ("test", "h`!p snip.rv = snip.v.mode + snip.v.text`b")
+    keys = "test" + EX + "abc"
+    wanted = "hbabc"
+class PythonVisual_SelectOneWord(_VimTest):
+    snippets = ("test", "h`!p snip.rv = snip.v.mode + snip.v.text`b")
+    keys = "blablub" + ESC + "0v6l" + EX + "test" + EX
+    wanted = "hvblablubb"
+class PythonVisual_LineSelect_Simple(_VimTest):
+    snippets = ("test", "h`!p snip.rv = snip.v.mode + snip.v.text`b")
+    keys = "hello\nnice\nworld" + ESC + "Vkk" + EX + "test" + EX
+    wanted = "hVhello\nnice\nworld\nb"
+
 # End: New Implementation  #}}}
 # End: PythonCode Interpolation  #}}}
 # Mirrors  {{{#
@@ -1607,6 +1620,32 @@ class Visual_LineSelect_CheckIndentWithTS_NoOverwrite(_VimTest):
     snippets = ("test", "beg\n\t${0:${VISUAL}}\nend")
     keys = "hello\nnice\nworld" + ESC + "Vkk" + EX + "test" + EX
     wanted = "beg\n\thello\n\tnice\n\tworld\nend"
+
+class VisualTransformation_SelectOneWord(_VimTest):
+    snippets = ("test", r"h${VISUAL/./\U$0\E/g}b")
+    keys = "blablub" + ESC + "0v6l" + EX + "test" + EX
+    wanted = "hBLABLUBb"
+class VisualTransformationWithDefault_ExpandWithoutVisual(_VimTest):
+    snippets = ("test", "h${VISUAL:world/./\U$0\E/g}b")
+    keys = "test" + EX + "hi"
+    wanted = "hWORLDbhi"
+class VisualTransformationWithDefault_ExpandWithVisual(_VimTest):
+    snippets = ("test", "h${VISUAL:world/./\U$0\E/g}b")
+    keys = "blablub" + ESC + "0v6l" + EX + "test" + EX
+    wanted = "hBLABLUBb"
+class VisualTransformation_LineSelect_Simple(_VimTest):
+    snippets = ("test", r"h${VISUAL/./\U$0\E/g}b")
+    keys = "hello\nnice\nworld" + ESC + "Vkk" + EX + "test" + EX
+    wanted = "hHELLO\n NICE\n WORLDb"
+class VisualTransformation_InDefaultText_LineSelect_NoOverwrite(_VimTest):
+    snippets = ("test", "h${1:bef${VISUAL/./\U$0\E/g}aft}b")
+    keys = "hello\nnice\nworld" + ESC + "Vkk" + EX + "test" + EX + JF + "hi"
+    wanted = "hbefHELLO\n    NICE\n    WORLDaftbhi"
+class VisualTransformation_InDefaultText_LineSelect_Overwrite(_VimTest):
+    snippets = ("test", "h${1:bef${VISUAL/./\U$0\E/g}aft}b")
+    keys = "hello\nnice\nworld" + ESC + "Vkk" + EX + "test" + EX + "jup" + JF + "hi"
+    wanted = "hjupbhi"
+
 # End: ${VISUAL}  #}}}
 
 # Recursive (Nested) Snippets  {{{#
@@ -2546,11 +2585,14 @@ class JumpForward_DefSnippet(_VimTest):
     snippets = ("test", "${1}\n`!p snip.rv = '\\n'.join(t[1].split())`\n\n${0:pass}")
     keys = "test" + EX + "a b c" + JF + "shallnot" + JF + "end"
     wanted = "a b c\na\nb\nc\n\nshallnotend"
-class DeleteSnippetInsertion(_VimTest):
+class DeleteSnippetInsertion0(_VimTest):
     snippets = ("test", "${1:hello} $1")
     keys = "test" + EX + ESC + "Vkx" + "i\nworld\n"
     wanted = "world"
-
+class DeleteSnippetInsertion1(_VimTest):
+    snippets = ("test", r"$1${1/(.*)/(?0::.)/}")
+    keys = "test" + EX + ESC + "u" + "i" + JF + "\t"
+    wanted = "\t"
 # End: Undo of Snippet insertion  #}}}
 # Tab Completion of Words  {{{#
 class Completion_SimpleExample_ECR(_VimTest):
@@ -2791,6 +2833,26 @@ class ExclusiveSelection_RealWorldCase_Test(_ES_Base):
 	// code
 }"""
 # End: Exclusive Selection  #}}}
+# Normal mode editing  {{{#
+# Test for bug #927844
+class DeleteLastTwoLinesInSnippet(_VimTest):
+    snippets = ("test", "$1hello\nnice\nworld")
+    keys = "test" + EX + ESC + "j2dd"
+    wanted = "hello"
+class DeleteCurrentTabStop1_JumpBack(_VimTest):
+    snippets = ("test", "${1:hi}\nend")
+    keys = "test" + EX + ESC + "ddi" + JB
+    wanted = "end"
+class DeleteCurrentTabStop2_JumpBack(_VimTest):
+    snippets = ("test", "${1:hi}\n${2:world}\nend")
+    keys = "test" + EX + JF + ESC + "ddi" + JB + "hello"
+    wanted = "hello\nend"
+class DeleteCurrentTabStop3_JumpAround(_VimTest):
+    snippets = ("test", "${1:hi}\n${2:world}\nend")
+    keys = "test" + EX + JF + ESC + "ddkji" + JB + "hello" + JF + "world"
+    wanted = "hello\nendworld"
+
+# End: Normal mode editing  #}}}
 ###########################################################################
 #                               END OF TEST                               #
 ###########################################################################
