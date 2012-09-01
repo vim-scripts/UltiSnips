@@ -12,31 +12,42 @@ import vim
 
 __all__ = ['as_unicode', 'compatible_exec', 'vim_cursor', 'set_vim_cursor']
 
+def _vim_dec(s):
+    try:
+        return s.decode(vim.eval("&encoding"))
+    except UnicodeDecodeError:
+        # At least we tried. There might be some problems down the road now
+        return s
+
+def _vim_enc(s):
+    try:
+        return s.encode(vim.eval("&encoding"))
+    except UnicodeEncodeError:
+        return s
+
 if sys.version_info >= (3,0):
     from UltiSnips.compatibility_py3 import *
 
-    def set_vim_cursor(line, col):
-        """Wrapper around vims access to window.cursor. It can't handle
-        multibyte chars, we therefore have to compensate"""
-
+    def col2byte(line, col):
+        """
+        Convert a valid column index into a byte index inside
+        of vims buffer.
+        """
         pre_chars = vim.current.buffer[line-1][:col]
-        nbytes = len(pre_chars.encode("utf-8"))
+        return len(_vim_enc(pre_chars))
 
-        vim.current.window.cursor = line, nbytes
+    def byte2col(line, nbyte):
+        """
+        Convert a column into a byteidx suitable for a mark or cursor
+        position inside of vim
+        """
+        line = vim.current.buffer[line-1]
+        raw_bytes = _vim_enc(line)[:nbyte]
+        return len(_vim_dec(raw_bytes))
 
-    def vim_cursor():
-        """Returns the character position (not the byte position) of the
-        vim cursor"""
-
-        line, nbyte = vim.current.window.cursor
-
-        raw_bytes = vim.current.buffer[line-1].encode("utf-8")[:nbyte]
-
-        col = len(raw_bytes.decode("utf-8"))
-        return line, col
     def as_unicode(s):
         if isinstance(s, bytes):
-            return s.decode("utf-8")
+            return _vim_dec(s)
         return str(s)
 
     def as_vimencoding(s):
@@ -44,31 +55,32 @@ if sys.version_info >= (3,0):
 else:
     from UltiSnips.compatibility_py2 import *
 
-    def set_vim_cursor(line, col):
-        """Wrapper around vims access to window.cursor. It can't handle
-        multibyte chars, we therefore have to compensate"""
+    import warnings
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        pre_chars = vim.current.buffer[line-1].decode("utf-8")[:col]
-        nbytes = len(pre_chars.encode("utf-8"))
+    def col2byte(line, col):
+        """
+        Convert a valid column index into a byte index inside
+        of vims buffer.
+        """
+        pre_chars = _vim_dec(vim.current.buffer[line-1])[:col]
+        return len(_vim_enc(pre_chars))
 
-        vim.current.window.cursor = line, nbytes
-
-    def vim_cursor():
-        """Returns the character position (not the byte position) of the
-        vim cursor"""
-
-        line, nbyte = vim.current.window.cursor
-
-        raw_bytes = vim.current.buffer[line-1][:nbyte]
-
-        col = len(raw_bytes.decode("utf-8"))
-        return line, col
+    def byte2col(line, nbyte):
+        """
+        Convert a column into a byteidx suitable for a mark or cursor
+        position inside of vim
+        """
+        line = vim.current.buffer[line-1]
+        if nbyte >= len(line): # This is beyond end of line
+            return nbyte
+        return len(_vim_dec(line[:nbyte]))
 
     def as_unicode(s):
         if isinstance(s, str):
-            return s.decode("utf-8")
+            return _vim_dec(s)
         return unicode(s)
 
     def as_vimencoding(s):
-        return s.encode("utf-8")
+        return _vim_enc(s)
 

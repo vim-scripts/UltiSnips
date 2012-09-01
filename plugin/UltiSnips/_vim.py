@@ -4,11 +4,13 @@
 """
 Wrapper functionality around the functions we need from Vim
 """
+import re
+
 import vim
 from vim import error
 
 from UltiSnips.geometry import Position
-from UltiSnips.compatibility import vim_cursor, set_vim_cursor, \
+from UltiSnips.compatibility import col2byte, byte2col, \
         as_unicode, as_vimencoding
 
 class VimBuffer(object):
@@ -41,26 +43,28 @@ class VimBuffer(object):
         before, after = as_unicode(line[:col]), as_unicode(line[col:])
         return before, after
 
+    @property
+    def nr(self):
+        return int(eval("bufnr('%')"))
+
     def cursor():
         """
         The current windows cursor. Note that this is 0 based in col and 0
         based in line which is different from Vim's cursor.
         """
         def fget(self):
-            line, col = vim_cursor()
+            line, nbyte = vim.current.window.cursor
+            col = byte2col(line, nbyte)
             return Position(line - 1, col)
         def fset(self, pos):
-            set_vim_cursor(pos.line + 1, pos.col)
+            nbyte = col2byte(pos.line + 1, pos.col)
+            vim.current.window.cursor = pos.line + 1, nbyte
         return locals()
     cursor = property(**cursor())
 buf = VimBuffer()
 
 def text_to_vim(start, end, text):
     lines = text.split('\n')
-
-    # Open any folds this might have created
-    buf.cursor = start
-    vim.command("normal zv")
 
     new_end = _calc_end(lines, start)
 
@@ -73,6 +77,10 @@ def text_to_vim(start, end, text):
         new_lines.extend(lines[1:])
         new_lines[-1] += after
     buf[start.line:end.line + 1] = new_lines
+
+    # Open any folds this might have created
+    buf.cursor = start
+    vim.command("normal zv")
 
     return new_end
 
@@ -113,6 +121,8 @@ def new_scratch_buffer(text):
 
     vim.buffers[-1][:] = text.splitlines()
 
+    feedkeys(r"\<Esc>")
+
 def select(start, end):
     """Select the span in Select mode"""
 
@@ -121,7 +131,8 @@ def select(start, end):
     delta = end - start
     lineno, col = start.line, start.col
 
-    set_vim_cursor(lineno + 1, col)
+    col = col2byte(lineno + 1, col)
+    vim.current.window.cursor = lineno + 1, col
 
     move_cmd = ""
     if eval("mode()") != 'n':
@@ -218,7 +229,10 @@ def _unmap_select_mode_mapping():
             for m in maps:
                 # The first three chars are the modes, that might be listed.
                 # We are not interested in them here.
-                trig = m[3:].split()[0]
+                trig = m[3:].split()[0] if len(m[3:].split()) != 0 else None
+
+                if trig is None:
+                    continue
 
                 # The bar separates commands
                 if trig[-1] == "|":
@@ -265,12 +279,16 @@ class _Real_LangMapTranslator(object):
     one line down is no longer possible and UltiSnips will fail.
     """
     _maps = {}
+    _SEMICOLONS = re.compile(r"(?<!\\);")
+    _COMMA = re.compile(r"(?<!\\),")
 
     def _create_translation(self, langmap):
         from_chars, to_chars = "", ""
-        for c in langmap.split(','):
-            if ";" in c:
-                a,b = c.split(';')
+        for c in self._COMMA.split(langmap):
+            c = c.replace("\\,", ",")
+            res = self._SEMICOLONS.split(c)
+            if len(res) > 1:
+                a,b = map(lambda a: a.replace("\\;", ";"), res)
                 from_chars += a
                 to_chars += b
             else:

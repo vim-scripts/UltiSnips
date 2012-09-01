@@ -11,11 +11,20 @@ if exists('did_UltiSnips_vim') || &cp || version < 700
     finish
 endif
 
+" Define dummy version of function called by autocommand setup in
+" ftdetect/UltiSnips.vim.  If the function isn't defined (probably due to
+" using a copy of vim without python support) it will cause an error anytime a
+" new file is opened.
+function! UltiSnips_FileTypeChanged()
+endfunction
+
 if !exists("g:UltiSnipsUsePythonVersion")
     let g:_uspy=":py3 "
     if !has("python3")
         if !has("python")
-            echo  "UltiSnips requires py >= 2.6 or any py3"
+            if !exists("g:UltiSnipsNoPythonWarning")
+                echo  "UltiSnips requires py >= 2.6 or any py3"
+            endif
             finish
         endif
         let g:_uspy=":py "
@@ -77,12 +86,12 @@ if !exists("g:UltiSnipsSnippetDirectories")
 endif
 " }}}
 
-"" Global Commands {{{
+" Global Commands {{{
 function! UltiSnipsEdit(...)
     if a:0 == 1 && a:1 != ''
         let type = a:1
     else
-        exec g:_uspy "vim.command(\"let type = '%s'\" % UltiSnips_Manager.filetype)"
+        exec g:_uspy "vim.command(\"let type = '%s'\" % UltiSnips_Manager.primary_filetype)"
     endif
     exec g:_uspy "vim.command(\"let file = '%s'\" % UltiSnips_Manager.file_to_edit(vim.eval(\"type\")))"
 
@@ -99,9 +108,17 @@ endfunction
 
 " edit snippets, default of current file type or the specified type
 command! -nargs=? UltiSnipsEdit :call UltiSnipsEdit(<q-args>)
+
+" Global Commands {{{
+function! UltiSnipsAddFiletypes(filetypes)
+    exec g:_uspy "UltiSnips_Manager.add_buffer_filetypes('" . a:filetypes . ".all')"
+    return ""
+endfunction
+command! -nargs=1 UltiSnipsAddFiletypes :call UltiSnipsAddFiletypes(<q-args>)
+
 "" }}}
 
-"" FUNCTIONS {{{
+" FUNCTIONS {{{
 function! CompensateForPUM()
     """ The CursorMovedI event is not triggered while the popup-menu is visible,
     """ and it's by this event that UltiSnips updates its vim-state. The fix is
@@ -144,6 +161,12 @@ function! UltiSnips_JumpForwards()
     return ""
 endfunction
 
+function! UltiSnips_FileTypeChanged()
+    exec g:_uspy "UltiSnips_Manager.reset_buffer_filetypes()"
+    exec g:_uspy "UltiSnips_Manager.add_buffer_filetypes('" . &ft . "')"
+    return ""
+endfunction
+
 function! UltiSnips_AddSnippet(trigger, value, descr, options, ...)
     " Takes the same arguments as SnippetManager.add_snippet:
     " (trigger, value, descr, options, ft = "all", globals = None)
@@ -168,6 +191,7 @@ endfunction
 function! UltiSnips_MapKeys()
     " Map the keys correctly
     if g:UltiSnipsExpandTrigger == g:UltiSnipsJumpForwardTrigger
+
         exec "inoremap <silent> " . g:UltiSnipsExpandTrigger . " <C-R>=UltiSnips_ExpandSnippetOrJump()<cr>"
         exec "snoremap <silent> " . g:UltiSnipsExpandTrigger . " <Esc>:call UltiSnips_ExpandSnippetOrJump()<cr>"
     else
@@ -191,8 +215,8 @@ endf
 function! UltiSnips_EnteredInsertMode()
     exec g:_uspy "UltiSnips_Manager.entered_insert_mode()"
 endf
-function! UltiSnips_LeavingWindow()
-    exec g:_uspy "UltiSnips_Manager.leaving_window()"
+function! UltiSnips_LeavingBuffer()
+    exec g:_uspy "UltiSnips_Manager.leaving_buffer()"
 endf
 " }}}
 
@@ -209,7 +233,7 @@ exec g:_uspy "UltiSnips_Manager.backward_trigger = vim.eval('g:UltiSnipsJumpBack
 
 au CursorMovedI * call UltiSnips_CursorMoved()
 au CursorMoved * call UltiSnips_CursorMoved()
-au WinLeave * call UltiSnips_LeavingWindow()
+au BufLeave * call UltiSnips_LeavingBuffer()
 
 call UltiSnips_MapKeys()
 

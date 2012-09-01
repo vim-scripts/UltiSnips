@@ -27,6 +27,7 @@ global !p
 
 NORMAL  = 0x1
 DOXYGEN = 0x2
+SPHINX  = 0x3
 
 def get_args(arglist):
     args = [arg.split('=')[0].strip() for arg in arglist.split(',') if arg]
@@ -39,12 +40,15 @@ def get_style(snip):
     style = snip.opt("g:ultisnips_python_style", "normal")
 
     if    style == "doxygen": return DOXYGEN
+    elif  style == "sphinx": return SPHINX
     else: return NORMAL
 
 
 def format_arg(arg, style):
     if style == DOXYGEN:
         return "@param %s @todo" % arg
+    elif style == SPHINX:
+        return ":param %s: @todo" % arg
     elif style == NORMAL:
         return ":%s: @todo" % arg
 
@@ -52,7 +56,7 @@ def format_arg(arg, style):
 def format_return(style):
     if style == DOXYGEN:
         return "@return: @todo"
-    elif style == NORMAL:
+    elif style in (NORMAL, SPHINX):
         return ":returns: @todo"
 
 
@@ -61,7 +65,7 @@ def write_docstring_args(args, snip):
         snip.rv += ' """'
         return
 
-    snip += ""
+    snip.rv += '\n' + snip.mkline('', indent='')
 
     style = get_style(snip)
 
@@ -77,7 +81,7 @@ def write_init_body(args, parents, snip):
         snip += p + ".__init__(self)"
 
     if parents:
-        snip += ""
+        snip.rv += '\n' + snip.mkline('', indent='')
 
     for arg in args:
         snip += "self._%s = %s" % (arg, arg)
@@ -105,10 +109,10 @@ snip >> 2
 args = get_args(t[4])
 
 write_docstring_args(args, snip)
-if args: snip += '"""'
+if args:
+    snip.rv += '\n' + snip.mkline('', indent='')
+    snip += '"""'
 
-
-snip += ""
 write_init_body(args, t[2], snip)
 `
 		$0
@@ -118,7 +122,7 @@ endsnippet
 snippet slotclass "class with slots and docstrings" b
 class ${1:MyClass}(${2:object}):
 	"""${3:Docstring for $1 }"""
-	`!p
+`!p
 snip >> 1
 args = get_args(t[4])
 write_slots_args(args, snip)
@@ -132,9 +136,10 @@ snip >> 2
 args = get_args(t[4])
 
 write_docstring_args(args, snip)
-if args: snip += '"""'
+if args:
+    snip.rv += '\n' + snip.mkline('', indent='')
+    snip += '"""'
 
-snip += ""
 write_init_body(args, t[2], snip)
 `
 		$0
@@ -336,8 +341,8 @@ if args:
 
 style = get_style(snip)
 snip += format_return(style)
+snip.rv += '\n' + snip.mkline('', indent='')
 snip += '"""' `
-
 	${0:pass}
 endsnippet
 
@@ -416,6 +421,10 @@ endsnippet
 # Assertions & Tests #
 #####################
 
+snippet pdb "Set PDB breakpoint" b
+import pdb; pdb.set_trace()
+endsnippet
+
 snippet ae "Assert equal" b
 self.assertEqual(${1:first},${2:second})
 endsnippet
@@ -442,13 +451,13 @@ class Test${1:Class}(${2:unittest.TestCase}):
 	"""${3:Test case docstring}"""
 
 	def setUp(self):
-		${3:pass}
-
-	def tearDown(self):
 		${4:pass}
 
-	def test_${5:name}(self):
-		${6:pass}
+	def tearDown(self):
+		${5:pass}
+
+	def test_${6:name}(self):
+		${7:pass}
 endsnippet
 
 # vim:ft=snippets:

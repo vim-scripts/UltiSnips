@@ -2,14 +2,14 @@
 # encoding: utf-8
 
 from functools import wraps
-from collections import deque
+from collections import deque, defaultdict
 import glob
 import hashlib
 import os
 import re
 import traceback
 
-from UltiSnips.compatibility import as_unicode
+from UltiSnips.compatibility import as_unicode, byte2col
 from UltiSnips._diff import diff, guess_edit
 from UltiSnips.geometry import Position
 from UltiSnips.text_objects import SnippetInstance
@@ -30,7 +30,7 @@ https://bugs.launchpad.net/ultisnips/+filebug.
 Following is the full stack trace:
 """
             s += traceback.format_exc()
-            self.leaving_window() # Vim sends no WinLeave msg here.
+            self.leaving_buffer() # Vim sends no WinLeave msg here.
             _vim.new_scratch_buffer(s)
     return wrapper
 
@@ -55,9 +55,9 @@ class _SnippetDictionary(object):
         else:
             return [ s for s in self.snippets if s.could_match(trigger) ]
 
+    @property
     def snippets(self):
         return self._added + self._snippets
-    snippets = property(snippets)
 
     def clear_snippets(self, triggers=[]):
         """Remove all snippets that match each trigger in triggers.
@@ -74,9 +74,9 @@ class _SnippetDictionary(object):
             self._snippets = []
             self._added = []
 
+    @property
     def files(self):
         return self._files
-    files = property(files)
 
     def reset(self):
         self._snippets = []
@@ -374,22 +374,22 @@ class Snippet(object):
 
         return match
 
+    @property
     def overwrites_previous(self):
         return "!" in self._opts
-    overwrites_previous = property(overwrites_previous)
 
+    @property
     def description(self):
         return ("(%s) %s" % (self._t, self._d)).strip()
-    description = property(description)
 
+    @property
     def trigger(self):
         return self._t
-    trigger = property(trigger)
 
+    @property
     def matched(self):
         """ The last text that was matched. """
         return self._matched
-    matched = property(matched)
 
     def launch(self, text_before, visual_content, parent, start, end):
         indent = self._INDENT.match(text_before).group(0)
@@ -430,20 +430,22 @@ class VisualContentPreserver(object):
         self._text = as_unicode("")
 
     def conserve(self):
-        sl, sc = map(int, (_vim.eval("""line("'<")"""), _vim.eval("""virtcol("'<")""")))
-        el, ec = map(int, (_vim.eval("""line("'>")"""), _vim.eval("""virtcol("'>")""")))
+        sl, sbyte = map(int, (_vim.eval("""line("'<")"""), _vim.eval("""col("'<")""")))
+        el, ebyte = map(int, (_vim.eval("""line("'>")"""), _vim.eval("""col("'>")""")))
+        sc = byte2col(sl, sbyte - 1)
+        ec = byte2col(el, ebyte - 1)
         self._mode = _vim.eval("visualmode()")
 
         def _vim_line_with_eol(ln):
             return _vim.buf[ln] + '\n'
 
         if sl == el:
-            text = _vim_line_with_eol(sl-1)[sc-1:ec]
+            text = _vim_line_with_eol(sl-1)[sc:ec+1]
         else:
-            text = _vim_line_with_eol(sl-1)[sc-1:]
+            text = _vim_line_with_eol(sl-1)[sc:]
             for cl in range(sl,el-1):
                 text += _vim_line_with_eol(cl)
-            text += _vim_line_with_eol(el-1)[:ec]
+            text += _vim_line_with_eol(el-1)[:ec+1]
 
         self._text = text
 
@@ -514,6 +516,7 @@ class SnippetManager(object):
         self._vstate = VimState()
         self._test_error = test_error
         self._snippets = {}
+        self._filetypes = defaultdict(lambda: ['all'])
         self._visual_content = VisualContentPreserver()
 
         while len(self._csnippets):
@@ -666,12 +669,15 @@ class SnippetManager(object):
             lt = lt[lt_span[0]:lt_span[1]]
             ct = ct[ct_span[0]:ct_span[1]]
 
-            rv, es = guess_edit(initial_line, lt, ct, self._vstate)
-            if not rv:
-                lt = '\n'.join(lt)
-                ct = '\n'.join(ct)
-                es = diff(lt, ct, initial_line)
-            self._csnippets[0].replay_user_edits(es)
+            try:
+                rv, es = guess_edit(initial_line, lt, ct, self._vstate)
+                if not rv:
+                    lt = '\n'.join(lt)
+                    ct = '\n'.join(ct)
+                    es = diff(lt, ct, initial_line)
+                self._csnippets[0].replay_user_edits(es)
+            except IndexError:
+                pass # Rather do nothing than throwing an error. It will be correct most of the time
 
         self._check_if_still_inside_snippet()
         if self._csnippets:
@@ -679,10 +685,10 @@ class SnippetManager(object):
             self._vstate.remember_buffer(self._csnippets[0])
 
 
-    def leaving_window(self):
+    def leaving_buffer(self):
         """
-        Called when the user switches tabs. It basically means that all
-        snippets must be properly terminated
+        Called when the user switches tabs/windows/buffers. It basically means
+        that all snippets must be properly terminated
         """
         while len(self._csnippets):
             self._current_snippet_is_done()
@@ -778,7 +784,8 @@ class SnippetManager(object):
         before the cursor. If possible is True, then get all
         possible matches.
         """
-        filetypes = self._ensure_snippets_loaded()
+        self._ensure_all_loaded()
+        filetypes = self._filetypes[_vim.buf.nr][::-1]
 
         found_snippets = []
         for ft in filetypes:
@@ -815,9 +822,9 @@ class SnippetManager(object):
                 rv = len(snippets)
             return snippets[rv-1]
         except _vim.error as e:
-            if str(e) == 'invalid expression':
-                return None
-            raise
+            # Likely "invalid expression", but might be translated. We have no way
+            # of knowing the exact error, therefore, we ignore all errors silently.
+            return None
 
     def _do_snippet(self, snippet, before, after):
         """ Expands the given snippet, and handles everything
@@ -867,11 +874,11 @@ class SnippetManager(object):
 
         return True
 
+    @property
     def _cs(self):
         if not len(self._csnippets):
             return None
         return self._csnippets[-1]
-    _cs = property(_cs)
 
     def _parse_snippets(self, ft, fn, file_data=None):
         self.add_snippet_file(ft, fn)
@@ -913,19 +920,15 @@ class SnippetManager(object):
 
         return ret
 
-    def _filetypes(self, dotft=None):
-        if dotft is None:
-            dotft = _vim.eval("&filetype")
+    @property
+    def primary_filetype(self):
+        """ Property for the primary filetype. This filetype
+        will be edited when UltiSnipsEdit is called
+        without any arguments.
+        """
+        return self._filetypes[_vim.buf.nr][0]
 
-        fts = dotft.split(".") + [ "all" ]
-        return [ft for ft in fts[::-1] if ft]
-
-    def filetype(self):
-        """ Property for the current (undotted) filetype. """
-        return self._filetypes()[-1]
-    filetype = property(filetype)
-
-    def file_to_edit(self, ft=None):
+    def file_to_edit(self, ft):
         """ Gets a file to edit based on the given filetype.
         If no filetype is given, uses the current filetype from Vim.
 
@@ -933,9 +936,6 @@ class SnippetManager(object):
         If a non-shipped file already exists, it uses it.
         Otherwise uses a file in ~/.vim/ or ~/vimfiles
         """
-        if not ft:
-            ft = self.filetype
-
         edit = None
         existing = self.base_snippet_files_for(ft, False)
         filename = ft + ".snippets"
@@ -963,21 +963,6 @@ class SnippetManager(object):
             edit = os.path.join(path, filename)
 
         return edit
-
-
-    def base_snippet_files(self, dotft=None):
-        """ Returns a list of all snippet files for the given filetype.
-        If no filetype is given, uses furrent filetype.
-        If the filetype is dotted (e.g. 'cuda.cpp.c') then it is split and
-        each filetype is checked.
-        """
-        ret = []
-        filetypes = self._filetypes(dotft)
-
-        for ft in filetypes:
-            ret += self.base_snippet_files_for(ft)
-
-        return ret
 
     # Loading
     def _load_snippets_for(self, ft):
@@ -1025,16 +1010,30 @@ class SnippetManager(object):
             self._ensure_loaded(parent, checked)
 
 
-    def _ensure_snippets_loaded(self):
+    def _ensure_all_loaded(self):
+        for ft in self._filetypes[_vim.buf.nr]:
+            self._ensure_loaded(ft)
+
+    def reset_buffer_filetypes(self):
+        if _vim.buf.nr in self._filetypes:
+            del self._filetypes[_vim.buf.nr]
+
+    def add_buffer_filetypes(self, ft):
         """ Checks for changes in the list of snippet files or the contents
         of the snippet files and reloads them if necessary.
         """
-        filetypes = self._filetypes()
+        buf_fts = self._filetypes[_vim.buf.nr]
+        idx = -1
+        for ft in ft.split("."):
+            ft = ft.strip()
+            if not ft: continue
+            try:
+                idx = buf_fts.index(ft)
+            except ValueError:
+                self._filetypes[_vim.buf.nr].insert(idx + 1, ft)
+                idx += 1
 
-        for ft in filetypes:
-            self._ensure_loaded(ft)
-
-        return filetypes
+        self._ensure_all_loaded()
 
     def _find_snippets(self, ft, trigger, potentially = False, seen=None):
         """

@@ -5,20 +5,6 @@ snippet array "array"
 $${1:arrayName} = array('${2}' => ${3});${4}
 endsnippet
 
-snippet class "class"
-/**
- * ${1}
- */
-class ${2:ClassName}
-{
-	${3}
-	function ${4:__construct}(${5:argument})
-	{
-		${6:// code...}
-	}
-}
-endsnippet
-
 snippet def "def"
 define('${1}'${2});${3}
 endsnippet
@@ -107,4 +93,166 @@ snippet var "var"
 var_export(${1});${2}
 endsnippet
 
+snippet getter "PHP Class Getter" !b
+/*
+ * Getter for $1
+ */
+public function get${1/\w+\s*/\u$0/}() 
+{
+    return $this->$1;$2
+}
+$4
+endsnippet
+
+snippet setter "PHP Class Setter" !b
+/*
+ * Setter for $1
+ */
+public function set${1/\w+\s*/\u$0/}($$1)
+{
+    $this->$1 = $$1;$3
+    ${4:return $this;}
+}
+$0
+endsnippet
+
+snippet gs "PHP Class Getter Setter" !b
+protected $$1
+
+/*
+ * Getter for $1
+ */
+public function get${1/\w+\s*/\u$0/}() 
+{
+    return $this->$1;$2
+}
+
+/*
+ * Setter for $1
+ */
+public function set${1/\w+\s*/\u$0/}($$1)
+{
+    $this->$1 = $$1;$3
+    ${4:return $this;}
+}
+$0
+endsnippet
+
+snippet pub "Public function" !b
+public function ${1:name}(${2:$param})
+{
+    ${VISUAL}${3:return null;}
+}
+$0
+endsnippet
+
+snippet pro "Protected function" !b
+protected function ${1:name}(${2:$param})
+{
+    ${VISUAL}${3:return null;}
+}
+$0
+endsnippet
+
+snippet pri "Private function" !b
+private function ${1:name}(${2:$param})
+{
+    ${VISUAL}${3:return null;}
+}
+$0
+endsnippet
+
+snippet pubs "Public static function" !b
+public static function ${1:name}(${2:$param})
+{
+    ${VISUAL}${3:return null;}
+}
+$0
+endsnippet
+
+snippet pros "Protected static function" !b
+protected static function ${1:name}(${2:$param})
+{
+    ${VISUAL}${3:return null;}
+}
+$0
+endsnippet
+
+snippet pris "Private static function" !b
+private static function ${1:name}(${2:$param})
+{
+    ${VISUAL}${3:return null;}
+}
+$0
+endsnippet
+
+snippet fu "Function snip" !b
+function ${1:name}(${2:$param}) 
+{
+    ${VISUAL}${3:return null;}
+}
+$0
+endsnippet
+# :vim:ft=snippets
+
+snippet fore "Foreach loop"
+foreach ($${1:variable} as $${3:value}){
+    ${VISUAL}${4}
+}
+$0
+endsnippet
+
+snippet new "New class instance" !b
+$$1 = new $1($2);
+$0
+endsnippet
+
+
+snippet ife "if else"
+if (${1:/* condition */}) {
+    ${2:// code...}
+} else {
+    ${3:// code...}
+}
+$0
+endsnippet
+
+
+snippet class "Class declaration template" !b
+/**
+ * Class ${1:`!p snip.rv=snip.fn.capitalize().split('.')[0]`} 
+ * @author $2
+ */
+class $1
+{
+    public function ${3:__construct}(${4:$options})
+    {
+        ${4:// code}
+    }
+}
+$0
+endsnippet
+
+snippet pr "Dumb debug helper in HTML"
+echo '<pre>' . var_export($1, 1) . '</pre>';$0
+endsnippet
+
+snippet pc "Dumb debug helper in cli"
+var_export($1);$0
+endsnippet
+
+# Symfony 2 based snippets
+snippet sfa "Symfony 2 Controller action"
+/**
+* @Route("/${1:route_name}", name="$1")
+* @Template()
+*/
+public function $1Action($2)
+{
+    $3
+    return ${4:array();}$0
+}
+endsnippet
+
 # :vim:ft=snippets:
+

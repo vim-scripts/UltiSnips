@@ -36,10 +36,9 @@ import time
 import re
 import platform
 import sys
+import subprocess
 
 from textwrap import dedent
-
-WIN = platform.system() == "Windows"
 
 # Some constants for better reading
 BS = '\x7f'
@@ -63,102 +62,139 @@ EA = "#" # Expand anonymous
 COMPL_KW = chr(24)+chr(14)
 COMPL_ACCEPT = chr(25)
 
+class VimInterface:
+    def focus(title=None):
+        pass
 
-################ windows ################
+    def send_keystrokes(self, str, sleeptime):
+        """
+        Send the keystrokes to vim via screen. Pause after each char, so
+        vim can handle this
+        """
+        for c in str:
+            self.send(c)
+            time.sleep(sleeptime)
 
-if WIN:
-    # import windows specific modules
-    import win32com.client, win32gui
-    shell = win32com.client.Dispatch("WScript.Shell")
+    def get_buffer_data(self):
+        handle, fn = tempfile.mkstemp(prefix="UltiSnips_Test",suffix=".txt")
+        os.close(handle)
+        os.unlink(fn)
 
-def focus_win(title=None):
-    if not shell.AppActivate(title or "- GVIM"):
-        raise Exception("Failed to switch to GVim window")
-    time.sleep(1)
+        self.send(ESC + ":w! %s\n" % fn)
 
-def is_focused(title=None):
-    cur_title = win32gui.GetWindowText(win32gui.GetForegroundWindow())
-    if (title or "- GVIM") in cur_title:
-        return True
-    return False
+        # Read the output, chop the trailing newline
+        tries = 50
+        while tries:
+            if os.path.exists(fn):
+                return open(fn,"r").read()[:-1]
+            time.sleep(.05)
+            tries -= 1
 
-BRACES = re.compile("([}{])")
-WIN_ESCAPES = ["+", "^", "%", "~", "[", "]", "<", ">", "(", ")"]
-WIN_REPLACES = [
-        (BS, "{BS}"),
-        (ARR_L, "{LEFT}"),
-        (ARR_R, "{RIGHT}"),
-        (ARR_U, "{UP}"),
-        (ARR_D, "{DOWN}"),
-        ("\t", "{TAB}"),
-        ("\n", "~"),
-        (ESC, "{ESC}"),
+class VimInterfaceScreen(VimInterface):
+    def __init__(self, session):
+        self.session = session
+        self.need_screen_escapes = 0
+        self.detect_parsing()
 
-        # On my system ` waits for a second keystroke, so `+SPACE = "`".  On
-        # most systems, `+Space = "` ". I work around this, by sending the host
-        # ` as `+_+BS. Awkward, but the only way I found to get this working.
-        ("`", "`_{BS}"),
-        ("´", "´_{BS}"),
-        ("{^}", "{^}_{BS}"),
-]
-def convert_keys(keys):
-    keys = BRACES.sub(r"{\1}", keys)
-    for k in WIN_ESCAPES:
-        keys = keys.replace(k, "{%s}" % k)
-    for f, r in WIN_REPLACES:
-        keys = keys.replace(f, r)
-    return keys
+    def send(self, s):
+        if self.need_screen_escapes:
+            # escape characters that are special to some versions of screen
+            repl = lambda m: '\\' + m.group(0)
+            s = re.sub( r"[$^#\\']", repl, s )
 
-SEQ_BUF = []
-def send_win(keys, session):
-    global SEQ_BUF
-    SEQ_BUF.append(keys)
-    seq = "".join(SEQ_BUF)
+        if sys.version_info >= (3,0):
+            s = s.encode("utf-8")
 
-    for f in SEQUENCES:
-        if f.startswith(seq) and f != seq:
-            return
-    SEQ_BUF = []
+        silent_call = lambda cmd: subprocess.call(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        while True:
+            rv = 0
+            if len(s) > 30:
+                rv |= silent_call(["screen", "-x", self.session, "-X", "register", "S", s])
+                rv |= silent_call(["screen", "-x", self.session, "-X", "paste", "S"])
+            else:
+                rv |= silent_call(["screen", "-x", self.session, "-X", "stuff", s])
+            if not rv: break
+            time.sleep(.2)
 
-    seq = convert_keys(seq)
+    def detect_parsing(self):
+        # Clear the buffer
+        self.send("bggVGd")
 
-    if not is_focused():
-        time.sleep(2)
-        focus()
-    if not is_focused():
-        # This is the only way I can find to stop test execution
-        raise KeyboardInterrupt("Failed to focus GVIM")
+        # Send a string where the interpretation will depend on version of screen
+        string = "$TERM"
+        self.send("i" + string + ESC)
+        output = self.get_buffer_data()
 
-    shell.SendKeys(seq)
+        # If the output doesn't match the input, need to do additional escaping
+        if output != string:
+            self.need_screen_escapes = 1
 
-################ end windows ################
+class VimInterfaceWindows(VimInterface):
+    BRACES = re.compile("([}{])")
+    WIN_ESCAPES = ["+", "^", "%", "~", "[", "]", "<", ">", "(", ")"]
+    WIN_REPLACES = [
+            (BS, "{BS}"),
+            (ARR_L, "{LEFT}"),
+            (ARR_R, "{RIGHT}"),
+            (ARR_U, "{UP}"),
+            (ARR_D, "{DOWN}"),
+            ("\t", "{TAB}"),
+            ("\n", "~"),
+            (ESC, "{ESC}"),
 
-def send_screen(s, session):
-    s = s.replace("'", r"'\''")
-    cmd = "screen -x %s -X stuff '%s'" % (session, s)
-    if sys.version_info >= (3,0):
-        cmd = cmd.encode("utf-8")
-    os.system(cmd)
+            # On my system ` waits for a second keystroke, so `+SPACE = "`".  On
+            # most systems, `+Space = "` ". I work around this, by sending the host
+            # ` as `+_+BS. Awkward, but the only way I found to get this working.
+            ("`", "`_{BS}"),
+            ("´", "´_{BS}"),
+            ("{^}", "{^}_{BS}"),
+    ]
 
+    def __init__(self):
+        self.seq_buf = []
+        # import windows specific modules
+        import win32com.client, win32gui
+        self.win32gui = win32gui
+        self.shell = win32com.client.Dispatch("WScript.Shell")
 
-def send(s, session):
-    if WIN:
-        send_win(s, session)
-    else:
-        send_screen(s, session)
+    def is_focused(self, title=None):
+        cur_title = self.win32gui.GetWindowText(self.win32gui.GetForegroundWindow())
+        if (title or "- GVIM") in cur_title:
+            return True
+        return False
 
-def focus(title=None):
-    if WIN:
-        focus_win(title=title)
+    def focus(self, title=None):
+        if not self.shell.AppActivate(title or "- GVIM"):
+            raise Exception("Failed to switch to GVim window")
+        time.sleep(1)
 
-def send_keystrokes(str, session, sleeptime):
-    """
-    Send the keystrokes to vim via screen. Pause after each char, so
-    vim can handle this
-    """
-    for c in str:
-        send(c, session)
-        time.sleep(sleeptime)
+    def convert_keys(self, keys):
+        keys = self.BRACES.sub(r"{\1}", keys)
+        for k in self.WIN_ESCAPES:
+            keys = keys.replace(k, "{%s}" % k)
+        for f, r in self.WIN_REPLACES:
+            keys = keys.replace(f, r)
+        return keys
+
+    def send(self, keys):
+        self.seq_buf.append(keys)
+        seq = "".join(self.seq_buf)
+
+        for f in SEQUENCES:
+            if f.startswith(seq) and f != seq:
+                return
+        self.seq_buf = []
+
+        seq = self.convert_keys(seq)
+
+        if not self.is_focused():
+            time.sleep(2)
+            self.focus()
+        if not self.is_focused():
+            # This is the only way I can find to stop test execution
+            raise KeyboardInterrupt("Failed to focus GVIM")
+
+        self.shell.SendKeys(seq)
 
 class _VimTest(unittest.TestCase):
     snippets = ("dummy", "donotdefine")
@@ -176,7 +212,7 @@ class _VimTest(unittest.TestCase):
     skip_on_mac = False
 
     def send(self,s):
-        send(s, self.session)
+        self.vim.send(s)
 
     def send_py(self,s):
         if sys.version_info < (3,0):
@@ -185,7 +221,7 @@ class _VimTest(unittest.TestCase):
             self.send(":py3 << EOF\n%s\nEOF\n" % s)
 
     def send_keystrokes(self,s):
-        send_keystrokes(s, self.session, self.sleeptime)
+        self.vim.send_keystrokes(s, self.sleeptime)
 
     def check_output(self):
         wanted = self.text_before + '\n\n' + self.wanted + \
@@ -220,6 +256,9 @@ class _VimTest(unittest.TestCase):
             return self._skip("Running on Linux")
         if self.skip_on_mac and system == "Darwin":
             return self._skip("Running on Darwin/Mac")
+
+        # Escape for good measure
+        self.send(ESC + ESC + ESC)
 
         # Close all scratch buffers
         self.send(":silent! close\n")
@@ -274,20 +313,7 @@ class _VimTest(unittest.TestCase):
 
             self._options_off()
 
-            handle, fn = tempfile.mkstemp(prefix="UltiSnips_Test",suffix=".txt")
-            os.close(handle)
-            os.unlink(fn)
-
-            self.send(":w! %s\n" % fn)
-
-            # Read the output, chop the trailing newline
-            tries = 50
-            while tries:
-                if os.path.exists(fn):
-                    self.output = open(fn,"r").read()[:-1]
-                    break
-                time.sleep(.05)
-                tries -= 1
+            self.output = self.vim.get_buffer_data()
 
 ###########################################################################
 #                            BEGINNING OF TEST                            #
@@ -1531,10 +1557,18 @@ class Visual_SelectOneWord(_VimTest):
     snippets = ("test", "h${VISUAL}b")
     keys = "blablub" + ESC + "0v6l" + EX + "test" + EX
     wanted = "hblablubb"
+class Visual_SelectOneWord_ProblemAfterTab(_VimTest):
+    snippets = ("test", "h${VISUAL}b", "", "i")
+    keys = "\tblablub" + ESC + "5hv3l" + EX + "test" + EX
+    wanted = "\tbhlablbub"
 class VisualWithDefault_ExpandWithoutVisual(_VimTest):
     snippets = ("test", "h${VISUAL:world}b")
     keys = "test" + EX + "hi"
     wanted = "hworldbhi"
+class VisualWithDefaultWithSlashes_ExpandWithoutVisual(_VimTest):
+    snippets = ("test", r"h${VISUAL:\/\/ body}b")
+    keys = "test" + EX + "hi"
+    wanted = "h// bodybhi"
 class VisualWithDefault_ExpandWithVisual(_VimTest):
     snippets = ("test", "h${VISUAL:world}b")
     keys = "blablub" + ESC + "0v6l" + EX + "test" + EX
@@ -1626,11 +1660,11 @@ class VisualTransformation_SelectOneWord(_VimTest):
     keys = "blablub" + ESC + "0v6l" + EX + "test" + EX
     wanted = "hBLABLUBb"
 class VisualTransformationWithDefault_ExpandWithoutVisual(_VimTest):
-    snippets = ("test", "h${VISUAL:world/./\U$0\E/g}b")
+    snippets = ("test", r"h${VISUAL:world/./\U$0\E/g}b")
     keys = "test" + EX + "hi"
     wanted = "hWORLDbhi"
 class VisualTransformationWithDefault_ExpandWithVisual(_VimTest):
-    snippets = ("test", "h${VISUAL:world/./\U$0\E/g}b")
+    snippets = ("test", r"h${VISUAL:world/./\U$0\E/g}b")
     keys = "blablub" + ESC + "0v6l" + EX + "test" + EX
     wanted = "hBLABLUBb"
 class VisualTransformation_LineSelect_Simple(_VimTest):
@@ -1638,11 +1672,11 @@ class VisualTransformation_LineSelect_Simple(_VimTest):
     keys = "hello\nnice\nworld" + ESC + "Vkk" + EX + "test" + EX
     wanted = "hHELLO\n NICE\n WORLDb"
 class VisualTransformation_InDefaultText_LineSelect_NoOverwrite(_VimTest):
-    snippets = ("test", "h${1:bef${VISUAL/./\U$0\E/g}aft}b")
+    snippets = ("test", r"h${1:bef${VISUAL/./\U$0\E/g}aft}b")
     keys = "hello\nnice\nworld" + ESC + "Vkk" + EX + "test" + EX + JF + "hi"
     wanted = "hbefHELLO\n    NICE\n    WORLDaftbhi"
 class VisualTransformation_InDefaultText_LineSelect_Overwrite(_VimTest):
-    snippets = ("test", "h${1:bef${VISUAL/./\U$0\E/g}aft}b")
+    snippets = ("test", r"h${1:bef${VISUAL/./\U$0\E/g}aft}b")
     keys = "hello\nnice\nworld" + ESC + "Vkk" + EX + "test" + EX + "jup" + JF + "hi"
     wanted = "hjupbhi"
 
@@ -2077,6 +2111,35 @@ class No_Tab_Expand_ET_SW_TS(_No_Tab_Expand):
     keys = "test" + EX
     wanted = "\t\tExpand\tme!\t"
 
+class _TabExpand_RealWorld(object):
+    snippets = ("hi",
+r"""hi
+`!p snip.rv="i1\n"
+snip.rv += snip.mkline("i1\n")
+snip.shift(1)
+snip.rv += snip.mkline("i2\n")
+snip.unshift(2)
+snip.rv += snip.mkline("i0\n")
+snip.shift(3)
+snip.rv += snip.mkline("i3")`
+snip.rv = repr(snip.rv)
+End""")
+
+class No_Tab_Expand_RealWorld(_TabExpand_RealWorld,_VimTest):
+    def _options_on(self):
+        self.send(":set noexpandtab\n")
+    def _options_off(self):
+        self.send(":set noexpandtab\n")
+    keys = "\t\thi" + EX
+    wanted = """\t\thi
+\t\ti1
+\t\ti1
+\t\t\ti2
+\ti0
+\t\t\t\ti3
+\t\tsnip.rv = repr(snip.rv)
+\t\tEnd"""
+
 
 class SnippetOptions_Regex_Expand(_VimTest):
     snippets = ("(test)", "Expand me!", "", "r")
@@ -2393,6 +2456,24 @@ hi4"""
     def _options_off(self):
         self.send(":set langmap=\n")
 
+# Test for bug 501727 #
+class TestNonEmptyLangmapWithSemi_ExceptCorrectResult(_VimTest):
+    snippets = ("testme",
+"""my snipped ${1:some_default}
+and a mirror: $1
+$2...$3
+$0""")
+    keys = "testme" + EX + "hi;" + JF + "hi2" + JF + "hi3" + JF + "hi4" + ESC + ";Hello"
+    wanted ="""my snipped hi;
+and a mirror: hi;
+hi2...hi3
+hi4Hello"""
+
+    def _options_on(self):
+        self.send(":set langmap=\\\\;;A\n")
+    def _options_off(self):
+        self.send(":set langmap=\n")
+
 # Test for bug 871357 #
 class TestLangmapWithUtf8_ExceptCorrectResult(_VimTest):
     skip_on_windows = True   # SendKeys can't send UTF characters
@@ -2506,6 +2587,23 @@ class Fold_DeleteMiddleLine_ECR(_VimTest):
 # End: $1  `!p snip.rv = vim.eval("&foldmarker").split(",")[1]`""")
     keys = "fold" + EX + "hi" + ESC + "jdd"
     wanted = "# hi  {{{\n\n# End: hi  }}}"
+
+class PerlSyntaxFold(_VimTest):
+    def _options_on(self):
+        self.send(":set foldlevel=0\n")
+        self.send(":syntax enable\n")
+        self.send(":set foldmethod=syntax\n")
+        self.send(":let g:perl_fold = 1\n")
+        self.send(":so $VIMRUNTIME/syntax/perl.vim\n")
+    def _options_off(self):
+        self.send(":set foldmethod=manual\n")
+        self.send(":syntax clear\n")
+
+    snippets = ("test", r"""package ${1:`!v printf('c%02d', 3)`};
+${0}
+1;""")
+    keys = "test" + EX + JF + "sub junk {}"
+    wanted = "package c03;\nsub junk {}\n1;"
 # End: Folding Interaction  #}}}
 
 # Cursor Movement  {{{#
@@ -2887,37 +2985,47 @@ if __name__ == '__main__':
     test_loader = unittest.TestLoader()
     all_test_suites = test_loader.loadTestsFromModule(__import__("test"))
 
-    focus()
+    if platform.system() == "Windows":
+        vim = VimInterfaceWindows()
+    else:
+        vim = VimInterfaceScreen(options.session)
+
+    vim.focus()
+
+    vim.send(ESC)
 
     # Ensure we are not running in VI-compatible mode.
-    send(""":set nocompatible\n""", options.session)
+    vim.send(""":set nocompatible\n""")
 
     # Do not mess with the X clipboard
-    send(""":set clipboard=""\n""", options.session)
+    vim.send(""":set clipboard=""\n""")
 
     # Set encoding and fileencodings
-    send(""":set encoding=utf-8\n""", options.session)
-    send(""":set fileencoding=utf-8\n""", options.session)
+    vim.send(""":set encoding=utf-8\n""")
+    vim.send(""":set fileencoding=utf-8\n""")
+
+    # Tell vim not to complain about quitting without writing
+    vim.send(""":set buftype=nofile\n""")
 
     # Ensure runtimepath includes only Vim's own runtime files
     # and those of the UltiSnips directory under test ('.').
-    send(""":set runtimepath=$VIMRUNTIME,.\n""", options.session)
+    vim.send(""":set runtimepath=$VIMRUNTIME,.\n""")
 
     # Set the options
-    send(""":let g:UltiSnipsExpandTrigger="<tab>"\n""", options.session)
-    send(""":let g:UltiSnipsJumpForwardTrigger="?"\n""", options.session)
-    send(""":let g:UltiSnipsJumpBackwardTrigger="+"\n""", options.session)
-    send(""":let g:UltiSnipsListSnippets="@"\n""", options.session)
+    vim.send(""":let g:UltiSnipsExpandTrigger="<tab>"\n""")
+    vim.send(""":let g:UltiSnipsJumpForwardTrigger="?"\n""")
+    vim.send(""":let g:UltiSnipsJumpBackwardTrigger="+"\n""")
+    vim.send(""":let g:UltiSnipsListSnippets="@"\n""")
 
     # Now, source our runtime
-    send(":so plugin/UltiSnips.vim\n", options.session)
+    vim.send(":so plugin/UltiSnips.vim\n")
     time.sleep(2) # Parsing and initializing UltiSnips takes a while.
 
     # Inform all test case which screen session to use
     suite = unittest.TestSuite()
     for s in all_test_suites:
         for test in s:
-            test.session = options.session
+            test.vim = vim
             test.interrupt = options.interrupt
             if len(selected_tests):
                 id = test.id().split('.')[1]
