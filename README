@@ -3,3 +3,5 @@ This is a mirror of http://www.vim.org/scripts/script.php?script_id=2715
 UltiSnips is the Ultimate solution for snippets under Vim.
 
 https://github.com/sirver/ultisnips
+
+Note: Since 2016, the vim.org site for this plugin is not updated any more. The plugin is still actively developed and maintained. Please follow our repository for future releases and bug fixes: https://github.com/SirVer/ultisnips. The master branch is always stable.

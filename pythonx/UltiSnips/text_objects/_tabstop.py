@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 # encoding: utf-8
 
-"""This is the most important TextObject. A TabStop is were the cursor
-comes to rest when the user taps through the Snippet."""
+"""This is the most important TextObject.
+
+A TabStop is were the cursor comes to rest when the user taps through
+the Snippet.
+
+"""
 
 from UltiSnips.text_objects._base import EditableTextObject
 
+
 class TabStop(EditableTextObject):
+
     """See module docstring."""
 
     def __init__(self, parent, token, start=None, end=None):
@@ -16,7 +22,8 @@ class TabStop(EditableTextObject):
         else:
             self._number = token.number
             EditableTextObject.__init__(self, parent, token)
-        parent._tabstops[self._number] = self  # pylint:disable=protected-access
+        parent._tabstops[
+            self._number] = self  # pylint:disable=protected-access
 
     @property
     def number(self):
@@ -28,3 +35,11 @@ class TabStop(EditableTextObject):
         """True if this tabstop has been typed over and the user therefore can
         no longer jump to it."""
         return self._parent is None
+
+    def __repr__(self):
+        try:
+            text = self.current_text
+        except IndexError:
+            text = '<err>'
+        return 'TabStop(%s,%r->%r,%r)' % (self.number, self._start,
+                                          self._end, text)
